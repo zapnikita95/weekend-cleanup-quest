@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://tidytitans.ru/sitemap.xml
+Sitemap: https://www.tidytitans.ru/sitemap.xml

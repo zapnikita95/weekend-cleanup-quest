@@ -78,6 +78,7 @@ type PlayerScore = {
 type GameRecord = {
   id: string
   pairKey: string
+  mode?: GameMode
   players: (Player & { profile?: Profile | null })[]
   winnerEmail: string
   roundMinutes: number
@@ -89,6 +90,7 @@ type GameRecord = {
 
 type PairLeaderboard = {
   pairKey: string
+  mode: GameMode
   players: (Player & { profile?: Profile | null })[]
   games: number
   totalScore: number
@@ -97,11 +99,17 @@ type PairLeaderboard = {
   lastPlayedAt: string
 }
 
+type ModeLeaderboards = {
+  solo: PairLeaderboard[]
+  duo: PairLeaderboard[]
+  childQuest: PairLeaderboard[]
+}
+
 type ApiState = {
   activeGames: ActiveGame[]
   profiles: Profile[]
   games: GameRecord[]
-  leaderboard: PairLeaderboard[]
+  leaderboard: ModeLeaderboards
 }
 
 type ActiveGame = {
@@ -133,7 +141,7 @@ type ChoreStat = {
 const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
 const roomIconOptions = ['bath', 'kitchen', 'living', 'bedroom', 'toilet', 'hall', 'wardrobe', 'storage', 'garden', 'outside', 'dining', 'garage']
 const defaultSections = ['Дела по дому', 'Уход за собой']
-const PUBLIC_SITE = 'https://tidytitans.ru'
+const PUBLIC_SITE = 'https://www.tidytitans.ru'
 
 const defaultPrizeTiers: PrizeTier[] = [
   { id: 'gold', label: '', minPercent: 100 },
@@ -189,10 +197,56 @@ const copyText = async (text: string) => {
   document.body.removeChild(area)
 }
 
-const defaultPlayers: Player[] = [
-  { email: 'you@example.com', name: 'Вы', avatar: 'fox' },
-  { email: 'partner@example.com', name: 'Партнёр', avatar: 'cat' },
-]
+const defaultPlayersByMode: Record<GameMode, Player[]> = {
+  duo: [
+    { email: 'player-1@example.com', name: 'Игрок 1', avatar: 'fox' },
+    { email: 'player-2@example.com', name: 'Игрок 2', avatar: 'cat' },
+  ],
+  solo: [{ email: 'player@example.com', name: 'Игрок', avatar: 'fox' }],
+  childQuest: [{ email: 'child@example.com', name: 'Ребёнок', avatar: 'duck', isChild: true }],
+}
+
+const playersStorageKey = (mode: GameMode) => `wcq-players-${mode}`
+
+const readPlayersForMode = (mode: GameMode): Player[] => {
+  const defaults = defaultPlayersByMode[mode]
+  const saved = readLocalJson<unknown>(playersStorageKey(mode), null)
+  if (!Array.isArray(saved) || saved.length < 1) return defaults.map((player) => ({ ...player }))
+  const limit = mode === 'childQuest' || mode === 'solo' ? 1 : saved.length
+  return saved.slice(0, limit).map((player: any, index) => ({
+    email: String(player?.email || defaults[index]?.email || `player-${index + 1}@example.com`),
+    name: String(player?.name || defaults[index]?.name || `Игрок ${index + 1}`),
+    avatar: String(player?.avatar || defaults[index]?.avatar || avatarOptions[index % avatarOptions.length]),
+    avatarUrl: player?.avatarUrl ? String(player.avatarUrl) : '',
+    isChild: mode === 'childQuest' ? true : Boolean(player?.isChild),
+  }))
+}
+
+const emptyLeaderboards = (): ModeLeaderboards => ({
+  solo: [],
+  duo: [],
+  childQuest: [],
+})
+
+const normalizeApiState = (state: ApiState): ApiState => {
+  if (Array.isArray((state as ApiState & { leaderboard?: unknown }).leaderboard)) {
+    const legacy = (state as ApiState & { leaderboard: PairLeaderboard[] }).leaderboard
+    return {
+      ...state,
+      leaderboard: {
+        solo: legacy.filter((entry) => entry.mode === 'solo'),
+        duo: legacy.filter((entry) => !entry.mode || entry.mode === 'duo'),
+        childQuest: legacy.filter((entry) => entry.mode === 'childQuest'),
+      },
+    }
+  }
+  return {
+    ...state,
+    leaderboard: state.leaderboard || emptyLeaderboards(),
+  }
+}
+
+const emptyState: ApiState = { activeGames: [], profiles: [], games: [], leaderboard: emptyLeaderboards() }
 
 const task = (id: string, title: string, minutes: number, difficulty: Difficulty = 'normal'): ChoreTask => ({
   id,
@@ -222,8 +276,6 @@ const defaultChores: ChoreItem[] = [
   task('trash', 'Мусор и пакеты', 10, 'easy'),
   task('dust', 'Вытереть пыль', 20),
 ]
-
-const emptyState: ApiState = { activeGames: [], profiles: [], games: [], leaderboard: [] }
 
 const difficultyLabel: Record<Difficulty, string> = {
   easy: 'легко',
@@ -405,19 +457,11 @@ function App() {
 }
 
 function GameApp({ initialGameId }: { initialGameId: string }) {
-  const [players, setPlayers] = useState<Player[]>(() => {
-    const saved = readLocalJson<unknown>('wcq-players', defaultPlayers)
-    if (!Array.isArray(saved) || saved.length < 1) return defaultPlayers
-    return saved.map((player: any, index) => ({
-      email: String(player?.email || defaultPlayers[index]?.email || `player-${index + 1}@example.com`),
-      name: String(player?.name || defaultPlayers[index]?.name || `Игрок ${index + 1}`),
-      avatar: String(player?.avatar || defaultPlayers[index]?.avatar || avatarOptions[index % avatarOptions.length]),
-      avatarUrl: player?.avatarUrl ? String(player.avatarUrl) : '',
-      isChild: Boolean(player?.isChild),
-    }))
-  })
-  const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
   const [gameMode, setGameMode] = useState<GameMode>(() => readLocalJson<GameMode>('wcq-game-mode', 'duo'))
+  const [players, setPlayers] = useState<Player[]>(() => readPlayersForMode(readLocalJson<GameMode>('wcq-game-mode', 'duo')))
+  const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
+  const [showOnboarding, setShowOnboarding] = useState(() => !readLocalJson<boolean>('wcq-onboarding-dismissed', false))
+  const [startHints, setStartHints] = useState<string[]>([])
   const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
   const [prizeTiers, setPrizeTiers] = useState<PrizeTier[]>(() => {
     const saved = readLocalJson<unknown>('wcq-prize-tiers', null)
@@ -440,7 +484,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [currentSection, setCurrentSection] = useState(() => readLocalJson<string>('wcq-current-section', defaultSections[0]))
   const [newSectionTitle, setNewSectionTitle] = useState('')
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
-  const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
+  const [status, setStatus] = useState('')
   const [newChore, setNewChore] = useState({ title: '', minutes: 15, difficulty: 'normal' as Difficulty })
   const [newCategoryTitle, setNewCategoryTitle] = useState('')
   const [roundMinutes, setRoundMinutes] = useState(120)
@@ -456,17 +500,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [awaitingReview, setAwaitingReview] = useState(false)
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
-  const childPlayerIndex = useMemo(() => players.findIndex((player) => player.isChild), [players])
-  const parentPlayerIndex = useMemo(() => players.findIndex((player) => !player.isChild), [players])
+  const childPlayerIndex = gameMode === 'childQuest' ? 0 : players.findIndex((player) => player.isChild)
+  const parentPlayerIndex = gameMode === 'childQuest' ? -1 : players.findIndex((player) => !player.isChild)
   const activePlayerIndexes = useMemo(() => {
-    if (gameMode === 'solo') return [0]
-    if (gameMode === 'childQuest') return childPlayerIndex >= 0 ? [childPlayerIndex] : []
+    if (gameMode === 'solo' || gameMode === 'childQuest') return [0]
     return players.map((_, index) => index)
-  }, [childPlayerIndex, gameMode, players])
+  }, [gameMode, players])
 
   const loadState = useCallback(async () => {
     try {
-      setRemoteState(await api<ApiState>('/api/state'))
+      setRemoteState(normalizeApiState(await api<ApiState>('/api/state')))
     } catch (error) {
       setStatus(error instanceof Error ? `Сервер истории недоступен: ${error.message}` : 'Сервер истории недоступен.')
     }
@@ -477,8 +520,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   }, [loadState])
 
   useEffect(() => {
-    writeLocalJson('wcq-players', players)
-  }, [players])
+    writeLocalJson(playersStorageKey(gameMode), players)
+  }, [players, gameMode])
 
   useEffect(() => {
     writeLocalJson('wcq-pair-email', pairEmail)
@@ -587,8 +630,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     [pairEmail, players],
   )
   const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
-  const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
-  const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
+  const currentPairGames = remoteState.games.filter(
+    (game) => game.pairKey === currentPairKey && (game.mode || 'duo') === gameMode,
+  )
+  const currentPairBoard = remoteState.leaderboard[gameMode].find((entry) => entry.pairKey === currentPairKey)
   const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
   const choreStats = useMemo(() => computeChoreStats(currentPairGames, gamePlayers), [currentPairGames, gamePlayers])
 
@@ -602,7 +647,6 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       .reduce((sum, chore) => sum + choreBasePoints(chore), 0)
   }, [assigned, childPlayerIndex, gameMode])
   const childTier = gameMode === 'childQuest' ? getTierFromScore(childCoins, targetScore) : 'none'
-  const childTierInfo = gameMode === 'childQuest' ? getNextTierInfo(childCoins, targetScore) : null
   const rankedPlayers = activePlayerIndexes.slice().sort((a, b) => playerScores[b].total - playerScores[a].total)
   const winner =
     gameMode === 'childQuest'
@@ -672,7 +716,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       const result = await api<{ game: ActiveGame }>(`/api/active-games/${gameId}`)
       setActiveGameId(result.game.id)
       setAssigned(result.game.chores)
-      setPlayers(result.game.players.length ? result.game.players : defaultPlayers)
+      setPlayers(result.game.players.length ? result.game.players : readPlayersForMode(result.game.mode || 'duo'))
       setRoundStartedAt(new Date(result.game.startedAt).getTime())
       setGameMode(result.game.mode || 'duo')
       setPrize(result.game.prize || '')
@@ -734,7 +778,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         method: 'POST',
       })
       applyProfile(index, result.profile)
-      setRemoteState(result.state)
+      setRemoteState(normalizeApiState(result.state))
       setStatus(`Профиль ${result.profile.name} сохранён.`)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось сохранить профиль.')
@@ -759,7 +803,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         method: 'POST',
       })
       applyProfile(index, result.profile)
-      setRemoteState(result.state)
+      setRemoteState(normalizeApiState(result.state))
       setStatus('Профиль обновлён.')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить аватарку.')
@@ -822,18 +866,78 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     })
   }
 
+  const switchGameMode = (mode: GameMode) => {
+    writeLocalJson(playersStorageKey(gameMode), players)
+    setGameMode(mode)
+    setPlayers(readPlayersForMode(mode))
+    setStartHints([])
+  }
+
+  const goToHome = () => {
+    setPhase('setup')
+    setAssigned([])
+    setRoundStartedAt(null)
+    setSavedGameId('')
+    setActiveGameId('')
+    setAwaitingReview(false)
+    window.history.replaceState(null, '', '/')
+  }
+
+  const dismissOnboarding = () => {
+    writeLocalJson('wcq-onboarding-dismissed', true)
+    setShowOnboarding(false)
+  }
+
+  const getStartBlockers = () => {
+    const blockers: string[] = []
+    if (!selectedTasks.length) blockers.push('chores')
+    if (gameMode === 'childQuest') {
+      if (!prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) blockers.push('gold-prize')
+      if (!players[0]?.name.trim()) blockers.push('child-name')
+    } else if (!prize.trim()) {
+      blockers.push('prize')
+    }
+    if (!normalizeEmail(pairEmail).includes('@')) blockers.push('email')
+    return blockers
+  }
+
+  const handleStartClick = () => {
+    const blockers = getStartBlockers()
+    setStartHints(blockers)
+    if (blockers.length) {
+      if (blockers.includes('email')) setStatus('Введите почту, чтобы сохранить игру в историю.')
+      else if (blockers.includes('chores')) setStatus('Выберите хотя бы одно дело в списке.')
+      else if (blockers.includes('gold-prize')) setStatus('Укажите приз за золото (1 место).')
+      else if (blockers.includes('child-name')) setStatus('Введите имя ребёнка.')
+      else if (blockers.includes('prize')) setStatus('Укажите приз или награду.')
+      return
+    }
+    startRound()
+  }
+
+  const deleteSavedGame = async (gameId: string) => {
+    try {
+      const result = await api<{ state: ApiState }>(`/api/games/${gameId}`, { method: 'DELETE' })
+      setRemoteState(normalizeApiState(result.state))
+      if (savedGameId === gameId) setSavedGameId('')
+      setStatus('Игра удалена из истории.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось удалить игру.')
+    }
+  }
+
   const startRound = async () => {
     if (!normalizeEmail(pairEmail).includes('@')) {
-      setStatus('Введите общую почту пары перед стартом уборки.')
+      setStatus('Введите общую почту перед стартом уборки.')
       return
     }
     if (gameMode === 'childQuest') {
-      if (childPlayerIndex < 0) {
-        setStatus('Отметьте одного персонажа как ребёнка.')
+      if (!prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) {
+        setStatus('Укажите приз за золото (1 место).')
         return
       }
-      if (!prizeTiers.every((tier) => tier.label.trim())) {
-        setStatus('Укажите призы для золота, серебра и бронзы.')
+      if (!players[0]?.name.trim()) {
+        setStatus('Введите имя ребёнка.')
         return
       }
     } else if (!prize.trim()) {
@@ -1159,7 +1263,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         }),
         method: 'POST',
       })
-      setRemoteState(result.state)
+      setRemoteState(normalizeApiState(result.state))
       setSavedGameId(result.game.id)
       setStatus('Игра сохранена в историю пары.')
     } catch (error) {
@@ -1169,12 +1273,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
   return (
     <main className="game-shell">
+      {status && <p className="app-toast">{status}</p>}
       <header className="topbar pixel-panel">
         <div>
-          <p className="eyebrow">Tidy Titans</p>
-          <h1>Уборка выходного дня</h1>
-          <p className="status-line">{status}</p>
-          <label className="pair-email-label">
+          <h1>Tidy Titans</h1>
+          <label className={`pair-email-label ${startHints.includes('email') ? 'field-error' : ''}`}>
             Введите почту, чтобы сохранить или загрузить игру
             <span className="email-load-row">
               <input
@@ -1220,21 +1323,23 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         </article>
       )}
 
+      {phase === 'setup' && showOnboarding && <OnboardingTour onDismiss={dismissOnboarding} />}
+
       {phase === 'setup' && (
         <section className="setup-grid">
-          <article className="pixel-panel profiles-panel">
+          <article className={`pixel-panel profiles-panel ${showOnboarding ? 'tour-profiles' : ''}`}>
             <div className="panel-title">
               <span>1</span>
-              <h2>Профили игроков</h2>
+              <h2>{gameMode === 'childQuest' ? 'Профиль ребёнка' : 'Профили игроков'}</h2>
             </div>
             <div className="mode-grid mode-grid-three">
-              <button className={gameMode === 'duo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('duo')}>
+              <button className={gameMode === 'duo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => switchGameMode('duo')}>
                 Парная игра
               </button>
-              <button className={gameMode === 'solo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('solo')}>
+              <button className={gameMode === 'solo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => switchGameMode('solo')}>
                 Одиночный режим
               </button>
-              <button className={gameMode === 'childQuest' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('childQuest')}>
+              <button className={gameMode === 'childQuest' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => switchGameMode('childQuest')}>
                 Квест для ребёнка
               </button>
               {gameMode === 'solo' && (
@@ -1259,42 +1364,17 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               {gameMode === 'childQuest' && (
                 <div className="child-setup-block">
                   <p className="hint">
-                    Отметьте одного персонажа как ребёнка. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
+                    Один персонаж — ребёнок. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
                   </p>
                   <label className="child-proof-toggle">
                     <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
                     Нужны фотографии для подтверждения (скоро)
                   </label>
-                  <div className="tier-prize-grid">
-                    {prizeTiers.map((tier) => (
-                      <label key={tier.id}>
-                        <span className="tier-prize-label">
-                          <PrizeSprite tier={tier.id} small />
-                          {tierLabels[tier.id]} ({tier.minPercent}%+)
-                        </span>
-                        <input
-                          placeholder={
-                            tier.id === 'gold'
-                              ? 'Например: поход в кино'
-                              : tier.id === 'silver'
-                                ? 'Например: мороженое'
-                                : 'Например: наклейка'
-                          }
-                          value={tier.label}
-                          onChange={(event) =>
-                            setPrizeTiers((current) =>
-                              current.map((item) => (item.id === tier.id ? { ...item, label: event.target.value } : item)),
-                            )
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>
             <div className="players-editor">
-              {players.slice(0, gameMode === 'solo' ? 1 : players.length).map((player, index) => (
+              {players.slice(0, gameMode === 'solo' || gameMode === 'childQuest' ? 1 : players.length).map((player, index) => (
                 <ProfileEditor
                   index={index}
                   key={index}
@@ -1304,25 +1384,21 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   onUploadAvatar={uploadAvatar}
                   player={player}
                   profiles={remoteState.profiles}
-                  canRemove={gameMode !== 'solo' && players.length > 1}
+                  canRemove={gameMode === 'duo' && players.length > 1}
                   onRemovePlayer={removePlayer}
-                  showChildToggle={gameMode === 'childQuest'}
+                  nameLabel={gameMode === 'childQuest' ? 'Имя ребёнка' : 'Имя героя'}
+                  highlightName={startHints.includes('child-name')}
                 />
               ))}
             </div>
-            {gameMode !== 'solo' && gameMode !== 'childQuest' && (
-              <button className="pixel-button alt wide" type="button" onClick={addPlayer}>
-                Добавить персонажа
-              </button>
-            )}
-            {gameMode === 'childQuest' && players.length < 3 && (
+            {gameMode === 'duo' && (
               <button className="pixel-button alt wide" type="button" onClick={addPlayer}>
                 Добавить персонажа
               </button>
             )}
           </article>
 
-          <aside className="pixel-panel stats-panel">
+          <aside className={`pixel-panel stats-panel ${showOnboarding ? 'tour-stats' : ''}`}>
             <div className="panel-title">
               <span>★</span>
               <h2>Рейтинг прошлых игр</h2>
@@ -1343,11 +1419,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                 })}
               </div>
             ) : (
-              <p className="hint">У этой пары ещё нет сохранённых игр. Самое время открыть сезон.</p>
+              <p className="hint">Прошлых игр пока нет, ваши завершённые игры будут тут</p>
             )}
           </aside>
 
-          <article className="pixel-panel">
+          <article className={`pixel-panel ${showOnboarding ? 'tour-duration' : ''}`}>
             <div className="panel-title">
               <span>2</span>
               <h2>Длина игры</h2>
@@ -1378,6 +1454,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           </article>
 
           <ChoreLibrary
+            className={showOnboarding ? 'tour-chores' : ''}
             chores={sectionChores}
             currentSection={currentSection}
             newCategoryTitle={newCategoryTitle}
@@ -1396,12 +1473,20 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             sections={sections}
           />
 
-          <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} stats={choreStats} players={gamePlayers} />
+          <Dashboard
+            gameMode={gameMode}
+            history={currentPairGames}
+            leaderboard={remoteState.leaderboard}
+            onDeleteGame={deleteSavedGame}
+            players={gamePlayers}
+            showOnboarding={showOnboarding}
+            stats={choreStats}
+          />
 
-          <article className="pixel-panel start-card">
+          <article className={`pixel-panel start-card ${showOnboarding ? 'tour-start' : ''}`}>
             <h2>Готовы к уборке?</h2>
             <div className="start-card-body">
-              <p>
+              <p className={startHints.includes('chores') ? 'start-hint-error' : ''}>
                 Выбрано поддел: <strong>{selectedTasks.length}</strong>.{' '}
                 {gameMode === 'childQuest'
                   ? `Цель ребёнка: ${recommendedScore} монет.`
@@ -1410,24 +1495,55 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                     : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
               </p>
               {gameMode !== 'childQuest' && (
-              <label>
-                Приз / награда
-                <input
-                  placeholder={gameMode === 'solo' ? 'Например: купить себе вкусняшку' : 'Например: победителю массаж / ужин'}
-                  value={prize}
-                  onChange={(event) => setPrize(event.target.value)}
-                />
-              </label>
+                <label className={startHints.includes('prize') ? 'field-error' : ''}>
+                  Приз / награда
+                  <input
+                    placeholder={gameMode === 'solo' ? 'Например: купить себе вкусняшку' : 'Например: победителю массаж / ужин'}
+                    value={prize}
+                    onChange={(event) => {
+                      setPrize(event.target.value)
+                      setStartHints((current) => current.filter((item) => item !== 'prize'))
+                    }}
+                  />
+                </label>
+              )}
+              {gameMode === 'childQuest' && (
+                <div className={`tier-prize-grid start-prize-grid ${startHints.includes('gold-prize') ? 'field-error' : ''}`}>
+                  {prizeTiers.map((tier) => (
+                    <label key={tier.id} className={tier.id === 'gold' && startHints.includes('gold-prize') ? 'field-error' : ''}>
+                      <span className="tier-prize-label">
+                        <PrizeSprite tier={tier.id} small />
+                        {tierLabels[tier.id]} ({tier.minPercent}%+){tier.id === 'gold' ? ' *' : ''}
+                      </span>
+                      <input
+                        placeholder={
+                          tier.id === 'gold'
+                            ? 'Например: поход в кино'
+                            : tier.id === 'silver'
+                              ? 'Например: мороженое'
+                              : 'Например: наклейка'
+                        }
+                        value={tier.label}
+                        onChange={(event) => {
+                          setPrizeTiers((current) =>
+                            current.map((item) => (item.id === tier.id ? { ...item, label: event.target.value } : item)),
+                          )
+                          if (tier.id === 'gold') setStartHints((current) => current.filter((item) => item !== 'gold-prize'))
+                        }}
+                      />
+                    </label>
+                  ))}
+                  <p className="hint">* Обязателен только приз за золото. Серебро и бронза — по желанию.</p>
+                </div>
+              )}
+              {startHints.length > 0 && (
+                <p className="start-blocker-hint">Заполните подсвеченные поля, чтобы запустить игру.</p>
               )}
             </div>
             <button
               className="pixel-button start"
-              disabled={
-                !selectedTasks.length ||
-                (gameMode === 'childQuest' ? !prizeTiers.every((tier) => tier.label.trim()) || childPlayerIndex < 0 : !prize.trim())
-              }
               type="button"
-              onClick={startRound}
+              onClick={handleStartClick}
             >
               {gameMode === 'childQuest' ? 'Запустить квест' : 'Сгенерировать уборку'}
             </button>
@@ -1457,9 +1573,14 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             >
               {gameMode === 'childQuest' ? 'Завершить квест' : gameMode === 'solo' ? 'Подвести итоги' : 'К оценкам'}
             </button>
+            {(activeGameId || initialGameId) && (
+              <button className="pixel-button alt" type="button" onClick={goToHome}>
+                На главную
+              </button>
+            )}
           </div>
 
-          {gameMode === 'childQuest' && childPlayerIndex >= 0 && childTierInfo && (
+          {gameMode === 'childQuest' && (
             <article className="pixel-panel parent-watch-card">
               <div className="parent-watch-header">
                 <div>
@@ -1652,6 +1773,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             <button className="pixel-button" type="button" onClick={resetRound}>
               Новый рейд
             </button>
+            <button className="pixel-button alt" type="button" onClick={goToHome}>
+              На главную
+            </button>
           </div>
         </section>
       )}
@@ -1661,6 +1785,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
 function ChoreLibrary({
   chores,
+  className = '',
   currentSection,
   newCategoryTitle,
   newChore,
@@ -1678,6 +1803,7 @@ function ChoreLibrary({
   sections,
 }: {
   chores: ChoreItem[]
+  className?: string
   currentSection: string
   newCategoryTitle: string
   newChore: { title: string; minutes: number; difficulty: Difficulty }
@@ -1695,7 +1821,7 @@ function ChoreLibrary({
   sections: string[]
 }) {
   return (
-    <article className="pixel-panel chores-panel">
+    <article className={className ? `pixel-panel chores-panel ${className}` : 'pixel-panel chores-panel'}>
       <div className="panel-title">
         <span>3</span>
         <h2>Общий список дел</h2>
@@ -2027,7 +2153,9 @@ function ScoreCards({
 
 function ProfileEditor({
   canRemove = false,
+  highlightName = false,
   index,
+  nameLabel = 'Имя героя',
   onApplyProfile,
   onRemovePlayer,
   onSaveProfile,
@@ -2035,10 +2163,11 @@ function ProfileEditor({
   onUploadAvatar,
   player,
   profiles,
-  showChildToggle = false,
 }: {
   canRemove?: boolean
+  highlightName?: boolean
   index: number
+  nameLabel?: string
   onApplyProfile: (index: number, profile: Profile) => void
   onRemovePlayer: (index: number) => void
   onSaveProfile: (index: number) => void
@@ -2046,21 +2175,14 @@ function ProfileEditor({
   onUploadAvatar: (index: number, file: File | null) => void
   player: Player
   profiles: Profile[]
-  showChildToggle?: boolean
 }) {
   return (
     <div className="player-editor">
       <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
-      <label>
-        Имя героя
+      <label className={highlightName ? 'field-error' : ''}>
+        {nameLabel}
         <input value={player.name} onChange={(event) => onUpdatePlayer(index, { name: event.target.value })} />
       </label>
-      {showChildToggle && (
-        <label className="child-flag">
-          <input checked={Boolean(player.isChild)} type="checkbox" onChange={(event) => onUpdatePlayer(index, { isChild: event.target.checked })} />
-          Это ребёнок (играет по ссылке)
-        </label>
-      )}
       <label>
         Выбрать существующий профиль
         <select
@@ -2111,35 +2233,60 @@ function ProfileEditor({
 }
 
 function Dashboard({
+  gameMode,
   history,
   leaderboard,
+  onDeleteGame,
   players,
+  showOnboarding = false,
   stats,
 }: {
+  gameMode: GameMode
   history: GameRecord[]
-  leaderboard: PairLeaderboard[]
+  leaderboard: ModeLeaderboards
+  onDeleteGame: (gameId: string) => void
   players: Player[]
+  showOnboarding?: boolean
   stats: ChoreStat[]
 }) {
+  const modeLabels: Record<GameMode, string> = {
+    solo: 'Одиночный',
+    duo: 'Парный',
+    childQuest: 'Квест для ребёнка',
+  }
+
   return (
-    <article className="pixel-panel dashboard-panel">
+    <article className={`pixel-panel dashboard-panel ${showOnboarding ? 'tour-dashboard' : ''}`}>
       <div className="panel-title">
         <span>4</span>
         <h2>История, дела и лидерборд</h2>
       </div>
       <div className="dashboard-grid three">
         <section>
-          <h3>История текущей пары</h3>
+          <h3>История ({modeLabels[gameMode]})</h3>
           <div className="history-list">
             {history.slice(0, 8).map((game) => (
-              <div className="history-row" key={game.id}>
-                <strong>{game.winnerEmail ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}` : 'Ничья'}</strong>
-                <span>
-                  {formatDate(game.finishedAt)} · {game.scores.map((score) => score.total).join(' : ')}
-                </span>
+              <div className="history-row history-row-actions" key={game.id}>
+                <div>
+                  <strong>
+                    {game.mode === 'childQuest'
+                      ? game.players[0]?.name || 'Квест'
+                      : game.mode === 'solo'
+                        ? `${game.players[0]?.name || 'Соло'}: ${game.scores[0]?.total || 0} очков`
+                        : game.winnerEmail
+                          ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}`
+                          : 'Ничья'}
+                  </strong>
+                  <span>
+                    {formatDate(game.finishedAt)} · {game.scores.map((score) => score.total).join(' : ')}
+                  </span>
+                </div>
+                <button className="tiny-button danger" type="button" onClick={() => onDeleteGame(game.id)}>
+                  Удалить
+                </button>
               </div>
             ))}
-            {!history.length && <p className="hint">Сохранённых игр этой пары пока нет.</p>}
+            {!history.length && <p className="hint">Сохранённых игр в этом режиме пока нет.</p>}
           </div>
         </section>
         <section>
@@ -2158,22 +2305,64 @@ function Dashboard({
           </div>
         </section>
         <section>
-          <h3>Лидерборд пар</h3>
-          <div className="history-list">
-            {leaderboard.slice(0, 8).map((pair, index) => (
-              <div className="history-row" key={pair.pairKey}>
-                <strong>
-                  #{index + 1} {pair.players.map((player) => player.name).join(' + ')}
-                </strong>
-                <span>
-                  {pair.games} игр · {pair.totalScore} очков · {pair.totalChores} дел
-                </span>
+          <h3>Лидерборд</h3>
+          {(['solo', 'duo', 'childQuest'] as const).map((mode) => (
+            <div className="leaderboard-mode-block" key={mode}>
+              <h4>{modeLabels[mode]}</h4>
+              <div className="history-list">
+                {leaderboard[mode].slice(0, 4).map((entry, index) => (
+                  <div className="history-row history-row-actions" key={`${mode}-${entry.pairKey}`}>
+                    <div>
+                      <strong>
+                        #{index + 1}{' '}
+                        {mode === 'solo' || mode === 'childQuest'
+                          ? entry.players[0]?.name || 'Игрок'
+                          : entry.players.map((player) => player.name).join(' + ')}
+                      </strong>
+                      <span>
+                        {entry.games} игр · {entry.totalScore} очков · {entry.totalChores} дел
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {!leaderboard[mode].length && <p className="hint">Пока пусто.</p>}
               </div>
-            ))}
-            {!leaderboard.length && <p className="hint">Лидерборд появится после первой сохранённой игры.</p>}
-          </div>
+            </div>
+          ))}
         </section>
       </div>
+    </article>
+  )
+}
+
+function OnboardingTour({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <article className="pixel-panel onboarding-panel">
+      <div className="panel-title">
+        <span>?</span>
+        <h2>Как устроена игра</h2>
+      </div>
+      <div className="onboarding-grid">
+        <section className="onboarding-step">
+          <strong>1. Профили</strong>
+          <p>Выберите режим: соло, пара или квест для ребёнка. Настройте имя и аватар — у каждого режима свой персонаж.</p>
+        </section>
+        <section className="onboarding-step">
+          <strong>2. Время и дела</strong>
+          <p>Задайте лимит минут и отметьте дела в библиотеке. Можно добавлять комнаты и подзадачи.</p>
+        </section>
+        <section className="onboarding-step">
+          <strong>3. Старт</strong>
+          <p>Внизу укажите приз и нажмите «Сгенерировать уборку». Ребёнку отправьте QR-ссылку на телефон.</p>
+        </section>
+        <section className="onboarding-step">
+          <strong>4. Итоги</strong>
+          <p>Отмечайте дела, завершайте раунд, сохраняйте в историю. Почта нужна, чтобы не потерять прогресс.</p>
+        </section>
+      </div>
+      <button className="pixel-button start" type="button" onClick={onDismiss}>
+        Понятно, поехали
+      </button>
     </article>
   )
 }
@@ -2250,7 +2439,7 @@ function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; ava
       <span className="eye left" />
       <span className="eye right" />
       <span className="snout" />
-      <span className="mouth" />
+      {avatar !== 'duck' && <span className="mouth" />}
       <span className="badge" />
       <span className="spark" />
     </div>

@@ -69,7 +69,11 @@ const writeDb = (db) => {
 }
 
 const sendJson = (response, status, payload) => {
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
+  response.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Strict-Transport-Security': 'max-age=31536000',
+    'X-Content-Type-Options': 'nosniff',
+  })
   response.end(JSON.stringify(payload))
 }
 
@@ -109,13 +113,21 @@ const buildState = () => {
     .sort((a, b) => new Date(b.updatedAt || b.startedAt).getTime() - new Date(a.updatedAt || a.startedAt).getTime())
     .map((game) => hydrateActiveGame(game, db.profiles))
 
-  const pairMap = new Map()
+  const boardMaps = {
+    solo: new Map(),
+    duo: new Map(),
+    childQuest: new Map(),
+  }
 
   for (const game of games) {
     if (!game.pairKey) continue
+    const mode = game.mode === 'solo' ? 'solo' : game.mode === 'childQuest' ? 'childQuest' : 'duo'
+    const boardKey = `${mode}|${game.pairKey}`
+    const boardMap = boardMaps[mode]
     const current =
-      pairMap.get(game.pairKey) || {
+      boardMap.get(boardKey) || {
         pairKey: game.pairKey,
+        mode,
         players: game.players,
         games: 0,
         totalScore: 0,
@@ -134,14 +146,21 @@ const buildState = () => {
     if (game.winnerEmail) {
       current.wins[game.winnerEmail] = (current.wins[game.winnerEmail] || 0) + 1
     }
-    pairMap.set(game.pairKey, current)
+    boardMap.set(boardKey, current)
   }
 
-  const leaderboard = [...pairMap.values()].sort((a, b) => {
-    const scoreA = a.totalScore + a.games * 25 + a.totalChores * 5
-    const scoreB = b.totalScore + b.games * 25 + b.totalChores * 5
-    return scoreB - scoreA
-  })
+  const sortBoard = (entries) =>
+    entries.sort((a, b) => {
+      const scoreA = a.totalScore + a.games * 25 + a.totalChores * 5
+      const scoreB = b.totalScore + b.games * 25 + b.totalChores * 5
+      return scoreB - scoreA
+    })
+
+  const leaderboard = {
+    solo: sortBoard([...boardMaps.solo.values()]),
+    duo: sortBoard([...boardMaps.duo.values()]),
+    childQuest: sortBoard([...boardMaps.childQuest.values()]),
+  }
 
   return { activeGames, profiles, games, leaderboard }
 }
@@ -475,6 +494,18 @@ const uploadAvatar = async (request, response) => {
   sendJson(response, 200, { profile, state: buildState() })
 }
 
+const deleteGame = async (gameId, response) => {
+  const db = readDb()
+  const index = db.games.findIndex((game) => game.id === gameId)
+  if (index < 0) {
+    sendError(response, 404, 'Игра не найдена.')
+    return
+  }
+  db.games.splice(index, 1)
+  writeDb(db)
+  sendJson(response, 200, { state: buildState() })
+}
+
 const createGame = async (request, response) => {
   const body = await readJsonBody(request)
   const players = Array.isArray(body.players)
@@ -544,6 +575,8 @@ const createGame = async (request, response) => {
 
 const serveFile = (response, filePath) => {
   response.setHeader('Content-Type', contentTypes[extname(filePath)] || 'application/octet-stream')
+  response.setHeader('Strict-Transport-Security', 'max-age=31536000')
+  response.setHeader('X-Content-Type-Options', 'nosniff')
   createReadStream(filePath).pipe(response)
 }
 
@@ -566,7 +599,18 @@ const serveStatic = (url, response) => {
 }
 
 const server = createServer(async (request, response) => {
+  const host = String(request.headers.host || '').split(':')[0]
   const url = new URL(request.url || '/', `http://${request.headers.host}`)
+
+  if (host === 'tidytitans.ru') {
+    const target = `https://www.tidytitans.ru${url.pathname}${url.search}`
+    response.writeHead(301, {
+      Location: target,
+      'Strict-Transport-Security': 'max-age=31536000',
+    })
+    response.end()
+    return
+  }
 
   try {
     if (request.method === 'GET' && url.pathname === '/api/state') {
@@ -622,6 +666,11 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'POST' && url.pathname === '/api/games') {
       await createGame(request, response)
+      return
+    }
+    const savedGameMatch = url.pathname.match(/^\/api\/games\/([^/]+)$/)
+    if (savedGameMatch && request.method === 'DELETE') {
+      await deleteGame(decodeURIComponent(savedGameMatch[1]), response)
       return
     }
     if (request.method === 'GET' && url.pathname.startsWith('/uploads/')) {
