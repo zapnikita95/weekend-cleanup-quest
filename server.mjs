@@ -164,8 +164,8 @@ const createActiveGame = async (request, response) => {
     : []
   const chores = Array.isArray(body.chores) ? body.chores : []
 
-  if (players.length !== 2 || players.some((player) => !player.email || !player.email.includes('@'))) {
-    sendError(response, 400, 'Для активной игры нужны два игрока с почтой.')
+  if (players.length < 1 || players.some((player) => !player.email || !player.email.includes('@'))) {
+    sendError(response, 400, 'Для активной игры нужен хотя бы один игрок с почтой.')
     return
   }
 
@@ -201,7 +201,7 @@ const completeActiveChore = async (gameId, request, response) => {
   }
 
   const playerIndex = Number(body.playerIndex)
-  if (playerIndex !== 0 && playerIndex !== 1) {
+  if (!Number.isInteger(playerIndex) || playerIndex < 0 || playerIndex >= game.players.length) {
     sendError(response, 400, 'Нужен номер игрока.')
     return
   }
@@ -257,7 +257,7 @@ const addActiveExtraChore = async (gameId, request, response) => {
   }
 
   const assignedTo = Number(body.assignedTo)
-  if (assignedTo !== 0 && assignedTo !== 1) {
+  if (!Number.isInteger(assignedTo) || assignedTo < 0 || assignedTo >= game.players.length) {
     sendError(response, 400, 'Нужен исполнитель дела.')
     return
   }
@@ -285,7 +285,7 @@ const addActiveExtraChore = async (gameId, request, response) => {
     partnerRating,
     extra: true,
     approved: solo,
-    reviewBy: solo ? assignedTo : assignedTo === 0 ? 1 : 0,
+    reviewBy: solo ? assignedTo : game.players.findIndex((_, index) => index !== assignedTo),
   }
 
   game.chores = [...(game.chores || []), chore]
@@ -313,6 +313,39 @@ const approveActiveExtraChore = async (gameId, request, response) => {
       ? { ...chore, difficulty, partnerRating, approved: true, reviewBy: undefined }
       : chore,
   )
+  game.updatedAt = new Date().toISOString()
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+}
+
+const rateActiveChore = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+
+  const choreId = String(body.choreId || '')
+  const reviewerIndex = Number(body.reviewerIndex)
+  const partnerRating = Math.max(0, Math.min(3, Number(body.partnerRating || 0)))
+  if (!Number.isInteger(reviewerIndex) || reviewerIndex < 0 || reviewerIndex >= game.players.length) {
+    sendError(response, 400, 'Нужен номер оценивающего игрока.')
+    return
+  }
+
+  game.chores = (game.chores || []).map((chore) => {
+    if (chore.id !== choreId || !chore.completed || chore.assignedTo === reviewerIndex) return chore
+    const ratings = { ...(chore.ratings || {}), [reviewerIndex]: partnerRating }
+    const averageRating = Object.values(ratings).reduce((sum, rating) => sum + Number(rating || 0), 0) / Object.values(ratings).length
+    return {
+      ...chore,
+      partnerRating: Math.round(averageRating),
+      ratings,
+    }
+  })
   game.updatedAt = new Date().toISOString()
   db.activeGames[gameId] = game
   writeDb(db)
@@ -396,14 +429,14 @@ const createGame = async (request, response) => {
       }))
     : []
 
-  if (players.length !== 2 || players.some((player) => !player.email || !player.email.includes('@'))) {
-    sendError(response, 400, 'Для истории нужны два игрока с почтой.')
+  if (players.length < 1 || players.some((player) => !player.email || !player.email.includes('@'))) {
+    sendError(response, 400, 'Для истории нужен хотя бы один игрок с почтой.')
     return
   }
 
   const scores = Array.isArray(body.scores) ? body.scores : []
-  if (scores.length !== 2) {
-    sendError(response, 400, 'Нужно передать очки двух игроков.')
+  if (scores.length !== players.length) {
+    sendError(response, 400, 'Нужно передать очки всех игроков.')
     return
   }
 
@@ -505,6 +538,10 @@ const server = createServer(async (request, response) => {
     }
     if (activeRoute && request.method === 'POST' && activeRoute.action === 'approve-extra') {
       await approveActiveExtraChore(activeRoute.id, request, response)
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'rate') {
+      await rateActiveChore(activeRoute.id, request, response)
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/profiles') {

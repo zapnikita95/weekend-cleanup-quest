@@ -213,7 +213,7 @@ label {
 .battlefield,
 .score-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 18px;
 }
 
@@ -292,7 +292,8 @@ label {
 }
 
 .add-chore,
-.add-category {
+.add-category,
+.section-switcher {
   display: grid;
   gap: 10px;
   margin-bottom: 16px;
@@ -304,6 +305,14 @@ label {
 
 .add-category {
   grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+.section-switcher {
+  grid-template-columns: 220px minmax(220px, 1fr) auto;
+  align-items: end;
+  border: 3px dashed rgba(31, 24, 61, 0.45);
+  background: rgba(255, 217, 90, 0.18);
+  padding: 12px;
 }
 
 .chore-list {

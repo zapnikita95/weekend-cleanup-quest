@@ -24,6 +24,7 @@ type ChoreTask = {
   minutes: number
   difficulty: Difficulty
   enabled: boolean
+  section?: string
 }
 
 type ChoreGroup = {
@@ -31,22 +32,24 @@ type ChoreGroup = {
   title: string
   enabled: boolean
   icon?: string
+  section?: string
   children: ChoreTask[]
 }
 
 type ChoreItem = ChoreTask | ChoreGroup
 
 type AssignedChore = ChoreTask & {
-  assignedTo: 0 | 1
+  assignedTo: number
   completed: boolean
   completedAt?: number
   actualMinutes?: number
   partnerRating: number
+  ratings?: Record<string, number>
   parentId?: string
   parentTitle?: string
   extra?: boolean
   approved?: boolean
-  reviewBy?: 0 | 1
+  reviewBy?: number
 }
 
 type CompletedChore = AssignedChore & {
@@ -114,8 +117,9 @@ type ChoreStat = {
 
 const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
 const roomIconOptions = ['bath', 'kitchen', 'living', 'bedroom', 'toilet', 'hall', 'wardrobe', 'storage', 'garden', 'outside', 'dining', 'garage']
+const defaultSections = ['Дела по дому', 'Уход за собой']
 
-const defaultPlayers: [Player, Player] = [
+const defaultPlayers: Player[] = [
   { email: 'you@example.com', name: 'Вы', avatar: 'fox' },
   { email: 'partner@example.com', name: 'Партнёр', avatar: 'cat' },
 ]
@@ -165,7 +169,7 @@ const difficultyBonus: Record<Difficulty, number> = {
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
-const pairPlayerEmail = (pairEmail: string, index: 0 | 1) => {
+const pairPlayerEmail = (pairEmail: string, index: number) => {
   const email = normalizeEmail(pairEmail)
   return email ? `${email}#player-${index + 1}` : ''
 }
@@ -233,12 +237,14 @@ const normalizeStoredChores = (items: unknown): ChoreItem[] => {
         title: String(item.title || 'Категория'),
         enabled: item.enabled !== false,
         icon: String(item.icon || 'storage'),
+        section: String(item.section || defaultSections[0]),
         children: item.children.map((child: any) => ({
           id: String(child.id || makeId()),
           title: String(child.title || 'Поддело'),
           minutes: Number(child.minutes || 10),
           difficulty: (child.difficulty || 'normal') as Difficulty,
           enabled: child.enabled !== false,
+          section: String(child.section || item.section || defaultSections[0]),
         })),
       }
     }
@@ -248,6 +254,7 @@ const normalizeStoredChores = (items: unknown): ChoreItem[] => {
       minutes: Number(item.minutes || 10),
       difficulty: (item.difficulty || 'normal') as Difficulty,
       enabled: item.enabled !== false,
+      section: String(item.section || defaultSections[0]),
     }
   })
 }
@@ -269,7 +276,7 @@ const getAssignableTasks = (item: ChoreItem): AssignedChore[] => {
     }))
 }
 
-const computeChoreStats = (games: GameRecord[], players: [Player, Player]): ChoreStat[] => {
+const computeChoreStats = (games: GameRecord[], players: Player[]): ChoreStat[] => {
   const map = new Map<string, { total: number; minutes: number; byPlayer: Record<string, number> }>()
   for (const game of games) {
     for (const chore of game.chores || []) {
@@ -295,32 +302,39 @@ const computeChoreStats = (games: GameRecord[], players: [Player, Player]): Chor
 }
 
 function App() {
-  const mobileRoute = window.location.pathname.match(/^\/player\/([^/]+)\/([01])\/?$/)
+  const mobileRoute = window.location.pathname.match(/^\/player\/([^/]+)\/(\d+)\/?$/)
   if (mobileRoute) {
-    return <MobilePlayerPage playerIndex={Number(mobileRoute[2]) as 0 | 1} sessionId={decodeURIComponent(mobileRoute[1])} />
+    return <MobilePlayerPage playerIndex={Number(mobileRoute[2])} sessionId={decodeURIComponent(mobileRoute[1])} />
   }
   const gameRoute = window.location.pathname.match(/^\/game\/([^/]+)\/?$/)
   return <GameApp initialGameId={gameRoute ? decodeURIComponent(gameRoute[1]) : ''} />
 }
 
 function GameApp({ initialGameId }: { initialGameId: string }) {
-  const [players, setPlayers] = useState<[Player, Player]>(() => {
+  const [players, setPlayers] = useState<Player[]>(() => {
     const saved = readLocalJson<unknown>('wcq-players', defaultPlayers)
-    if (!Array.isArray(saved) || saved.length !== 2) return defaultPlayers
+    if (!Array.isArray(saved) || saved.length < 1) return defaultPlayers
     return saved.map((player: any, index) => ({
-      email: String(player?.email || defaultPlayers[index as 0 | 1].email),
-      name: String(player?.name || defaultPlayers[index as 0 | 1].name),
-      avatar: String(player?.avatar || defaultPlayers[index as 0 | 1].avatar),
+      email: String(player?.email || defaultPlayers[index]?.email || `player-${index + 1}@example.com`),
+      name: String(player?.name || defaultPlayers[index]?.name || `Игрок ${index + 1}`),
+      avatar: String(player?.avatar || defaultPlayers[index]?.avatar || avatarOptions[index % avatarOptions.length]),
       avatarUrl: player?.avatarUrl ? String(player.avatarUrl) : '',
-    })) as [Player, Player]
+    }))
   })
   const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
   const [gameMode, setGameMode] = useState<GameMode>(() => readLocalJson<GameMode>('wcq-game-mode', 'duo'))
   const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
-  const [extraChore, setExtraChore] = useState({ assignedTo: 0 as 0 | 1, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
+  const [extraChore, setExtraChore] = useState({ assignedTo: 0, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
   const [extraReviews, setExtraReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
   const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(readLocalJson<unknown>('wcq-chores', null)))
+  const [sections, setSections] = useState<string[]>(() => {
+    const saved = readLocalJson<unknown>('wcq-sections', defaultSections)
+    const valid = Array.isArray(saved) ? saved.map(String).filter(Boolean) : defaultSections
+    return valid.length ? valid : defaultSections
+  })
+  const [currentSection, setCurrentSection] = useState(() => readLocalJson<string>('wcq-current-section', defaultSections[0]))
+  const [newSectionTitle, setNewSectionTitle] = useState('')
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
   const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
   const [newChore, setNewChore] = useState({ title: '', minutes: 15, difficulty: 'normal' as Difficulty })
@@ -333,9 +347,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [musicOn, setMusicOn] = useState(false)
   const [savedGameId, setSavedGameId] = useState('')
   const [activeGameId, setActiveGameId] = useState(() => initialGameId || readLocalJson<string>('wcq-active-game-id', ''))
-  const [qrCodes, setQrCodes] = useState<[string, string]>(['', ''])
+  const [qrCodes, setQrCodes] = useState<string[]>([])
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
+  const activePlayerIndexes = useMemo(() => (gameMode === 'solo' ? [0] : players.map((_, index) => index)), [gameMode, players])
 
   const loadState = useCallback(async () => {
     try {
@@ -378,25 +393,33 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   }, [chores])
 
   useEffect(() => {
+    writeLocalJson('wcq-sections', sections)
+  }, [sections])
+
+  useEffect(() => {
+    writeLocalJson('wcq-current-section', currentSection)
+  }, [currentSection])
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
     if (!activeGameId) {
-      setQrCodes(['', ''])
+      setQrCodes([])
       return
     }
 
     const makeCodes = async () => {
       const base = window.location.origin
-      const urls = [0, 1].map((playerIndex) => `${base}/player/${activeGameId}/${playerIndex}`)
+      const urls = activePlayerIndexes.map((playerIndex) => `${base}/player/${activeGameId}/${playerIndex}`)
       const codes = await Promise.all(urls.map((url) => QRCode.toDataURL(url, { margin: 1, width: 220 })))
-      setQrCodes(codes as [string, string])
+      setQrCodes(codes)
     }
 
-    makeCodes().catch(() => setQrCodes(['', '']))
-  }, [activeGameId])
+    makeCodes().catch(() => setQrCodes([]))
+  }, [activeGameId, activePlayerIndexes])
 
   useEffect(() => {
     if (!activeGameId || phase === 'setup') return
@@ -412,26 +435,23 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     return () => window.clearInterval(timer)
   }, [activeGameId, phase])
 
-  const selectedTasks = useMemo(() => chores.flatMap(getAssignableTasks), [chores])
+  const sectionChores = useMemo(() => chores.filter((chore) => (chore.section || defaultSections[0]) === currentSection), [chores, currentSection])
+  const selectedTasks = useMemo(() => sectionChores.flatMap(getAssignableTasks), [sectionChores])
   const recommendedScore = useMemo(() => {
     const potentials = selectedTasks.map((chore) => 10 + chore.minutes + difficultyBonus[chore.difficulty]).sort((a, b) => a - b)
     const skipCount = Math.min(potentials.length, potentials.length >= 8 ? 3 : potentials.length >= 4 ? 2 : 1)
     const forgivingTotal = potentials.slice(skipCount).reduce((sum, score) => sum + score, 0)
     const categoryBonus = chores
-      .filter(isGroup)
+      .filter((chore): chore is ChoreGroup => isGroup(chore) && (chore.section || defaultSections[0]) === currentSection)
       .reduce((sum, group) => sum + (group.enabled && group.children.filter((child) => child.enabled).length >= 2 ? 12 : 0), 0)
     return Math.max(20, Math.round((forgivingTotal + categoryBonus) / 10) * 10)
-  }, [chores, selectedTasks])
+  }, [chores, currentSection, selectedTasks])
   const elapsedSeconds = roundStartedAt ? Math.max(0, Math.floor((now - roundStartedAt) / 1000)) : 0
-  const playerPlans = useMemo(
-    () => [assigned.filter((chore) => chore.assignedTo === 0), assigned.filter((chore) => chore.assignedTo === 1)] as const,
-    [assigned],
-  )
+  const playerPlans = useMemo(() => players.map((_, index) => assigned.filter((chore) => chore.assignedTo === index)), [assigned, players])
   const gamePlayers = useMemo(
-    () => players.map((player, index) => ({ ...player, email: pairPlayerEmail(pairEmail, index as 0 | 1) })) as [Player, Player],
+    () => players.map((player, index) => ({ ...player, email: pairPlayerEmail(pairEmail, index) })),
     [pairEmail, players],
   )
-  const activePlayerIndexes = useMemo(() => (gameMode === 'solo' ? [0] : [0, 1]) as (0 | 1)[], [gameMode])
   const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
   const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
   const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
@@ -439,7 +459,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const choreStats = useMemo(() => computeChoreStats(currentPairGames, gamePlayers), [currentPairGames, gamePlayers])
 
   const scoreFor = useCallback(
-    (playerIndex: 0 | 1): PlayerScore => {
+    (playerIndex: number): PlayerScore => {
       const completed = assigned.filter(
         (chore) => chore.assignedTo === playerIndex && isCompleted(chore) && (!chore.extra || chore.approved),
       )
@@ -459,29 +479,44 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     [assigned],
   )
 
-  const playerScores = [scoreFor(0), scoreFor(1)] as const
+  const playerScores = players.map((_, index) => scoreFor(index))
+  const rankedPlayers = activePlayerIndexes.slice().sort((a, b) => playerScores[b].total - playerScores[a].total)
   const winner =
     gameMode === 'solo'
       ? playerScores[0].total >= Math.ceil(targetScore * 0.9)
         ? 0
         : null
-      : playerScores[0].total === playerScores[1].total
-        ? null
-        : playerScores[0].total > playerScores[1].total
-          ? 0
-          : 1
-  const winnerEmail = winner === null ? '' : normalizeEmail(gamePlayers[winner].email)
+      : rankedPlayers.length && playerScores[rankedPlayers[0]].total !== playerScores[rankedPlayers[1]]?.total
+        ? rankedPlayers[0]
+        : null
+  const winnerEmail = winner === null ? '' : normalizeEmail(gamePlayers[winner]?.email || '')
   const allDone = assigned.length > 0 && assigned.every((chore) => chore.completed)
 
-  const updatePlayer = (index: 0 | 1, patch: Partial<Player>) => {
+  const updatePlayer = (index: number, patch: Partial<Player>) => {
     setPlayers((current) => {
-      const next: [Player, Player] = [{ ...current[0] }, { ...current[1] }]
+      const next = current.map((player) => ({ ...player }))
       next[index] = { ...next[index], ...patch }
       return next
     })
   }
 
-  const applyProfile = (index: 0 | 1, profile: Profile) => {
+  const addPlayer = () => {
+    setPlayers((current) => [
+      ...current,
+      {
+        email: `player-${current.length + 1}@example.com`,
+        name: `Игрок ${current.length + 1}`,
+        avatar: avatarOptions[current.length % avatarOptions.length],
+      },
+    ])
+  }
+
+  const removePlayer = (index: number) => {
+    if (players.length <= 1) return
+    setPlayers((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  }
+
+  const applyProfile = (index: number, profile: Profile) => {
     updatePlayer(index, {
       avatar: profile.avatar,
       avatarUrl: profile.avatarUrl,
@@ -494,6 +529,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       const result = await api<{ game: ActiveGame }>(`/api/active-games/${gameId}`)
       setActiveGameId(result.game.id)
       setAssigned(result.game.chores)
+      setPlayers(result.game.players.length ? result.game.players : defaultPlayers)
       setRoundStartedAt(new Date(result.game.startedAt).getTime())
       setGameMode(result.game.mode || 'duo')
       setPrize(result.game.prize || '')
@@ -524,7 +560,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     setStatus(active ? 'Найдена активная игра. Можно перейти к ней ниже.' : 'Почта загружена. Активной игры пока нет.')
   }
 
-  const saveProfile = async (index: 0 | 1) => {
+  const saveProfile = async (index: number) => {
     const player = { ...players[index], email: gamePlayers[index].email }
     if (!normalizeEmail(pairEmail).includes('@')) {
       setStatus('Введите общую почту пары, чтобы сохранить профиль.')
@@ -543,7 +579,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }
   }
 
-  const uploadAvatar = async (index: 0 | 1, file: File | null) => {
+  const uploadAvatar = async (index: number, file: File | null) => {
     if (!file) return
     if (!normalizeEmail(pairEmail).includes('@')) {
       setStatus('Сначала укажи общую почту пары, потом загружай аватарку.')
@@ -571,22 +607,30 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const addChore = () => {
     const title = newChore.title.trim()
     if (!title) return
-    setChores((current) => [...current, { ...newChore, id: makeId(), title, enabled: true }])
+    setChores((current) => [...current, { ...newChore, id: makeId(), title, enabled: true, section: currentSection }])
     setNewChore({ title: '', minutes: 15, difficulty: 'normal' })
   }
 
   const addCategory = () => {
     const title = newCategoryTitle.trim()
     if (!title) return
-    setChores((current) => [...current, { id: makeId(), title, enabled: true, icon: 'storage', children: [] }])
+    setChores((current) => [...current, { id: makeId(), title, enabled: true, icon: 'storage', section: currentSection, children: [] }])
     setNewCategoryTitle('')
+  }
+
+  const addSection = () => {
+    const title = newSectionTitle.trim()
+    if (!title || sections.includes(title)) return
+    setSections((current) => [...current, title])
+    setCurrentSection(title)
+    setNewSectionTitle('')
   }
 
   const addChild = (groupId: string) => {
     setChores((current) =>
       current.map((item) =>
         isGroup(item) && item.id === groupId
-          ? { ...item, children: [...item.children, task(makeId(), '', 10, 'normal')] }
+          ? { ...item, children: [...item.children, { ...task(makeId(), '', 10, 'normal'), section: item.section || currentSection }] }
           : item,
       ),
     )
@@ -626,18 +670,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       return
     }
 
-    const totals = [0, 0]
+    const totals = players.map(() => 0)
     const nextAssigned: AssignedChore[] = []
 
-    const assignTask = (chore: AssignedChore, preferred?: 0 | 1) => {
-      const order: (0 | 1)[] =
+    const assignTask = (chore: AssignedChore, preferred?: number) => {
+      const order: number[] =
         gameMode === 'solo'
           ? [0]
           : preferred !== undefined
-            ? [preferred, preferred === 0 ? 1 : 0]
-            : totals[0] <= totals[1]
-              ? [0, 1]
-              : [1, 0]
+            ? [preferred, ...activePlayerIndexes.filter((index) => index !== preferred)]
+            : activePlayerIndexes.slice().sort((a, b) => totals[a] - totals[b])
       const target = order.find((playerIndex) => totals[playerIndex] + chore.minutes <= roundMinutes)
       if (target === undefined) return false
       totals[target] += chore.minutes
@@ -645,13 +687,13 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       return true
     }
 
-    for (const item of shuffle(chores.filter((chore) => chore.enabled))) {
+    for (const item of shuffle(sectionChores.filter((chore) => chore.enabled))) {
       const tasks = getAssignableTasks(item)
       if (!tasks.length) continue
 
       if (isGroup(item)) {
         const total = tasks.reduce((sum, chore) => sum + chore.minutes, 0)
-        const order: (0 | 1)[] = gameMode === 'solo' ? [0] : totals[0] <= totals[1] ? [0, 1] : [1, 0]
+        const order: number[] = gameMode === 'solo' ? [0] : activePlayerIndexes.slice().sort((a, b) => totals[a] - totals[b])
         const wholeTarget = order.find((playerIndex) => totals[playerIndex] + total <= roundMinutes)
         if (wholeTarget !== undefined) {
           tasks.forEach((chore) => assignTask(chore, wholeTarget))
@@ -695,7 +737,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   }
 
   const completeNextFor = useCallback(
-    async (playerIndex: 0 | 1, choreId?: string) => {
+    async (playerIndex: number, choreId?: string) => {
       if (phase !== 'play') return
       if (activeGameId) {
         try {
@@ -762,7 +804,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [completeNextFor])
 
-  const rateChore = (id: string, playerIndex: 0 | 1, rating: number) => {
+  const rateChore = (id: string, playerIndex: number, rating: number) => {
     setAssigned((current) =>
       current.map((chore) => (chore.id === id && chore.assignedTo === playerIndex ? { ...chore, partnerRating: rating } : chore)),
     )
@@ -789,7 +831,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       partnerRating: gameMode === 'solo' ? extraChore.rating : 0,
       extra: true,
       approved: gameMode === 'solo',
-      reviewBy: gameMode === 'solo' ? 0 : extraChore.assignedTo === 0 ? 1 : 0,
+      reviewBy: gameMode === 'solo' ? 0 : activePlayerIndexes.find((index) => index !== extraChore.assignedTo) ?? 0,
     }
 
     if (!activeGameId) {
@@ -968,9 +1010,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               )}
             </div>
             <div className="players-editor">
-              {players.slice(0, gameMode === 'solo' ? 1 : 2).map((player, index) => (
+              {players.slice(0, gameMode === 'solo' ? 1 : players.length).map((player, index) => (
                 <ProfileEditor
-                  index={index as 0 | 1}
+                  index={index}
                   key={index}
                   onApplyProfile={applyProfile}
                   onSaveProfile={saveProfile}
@@ -978,9 +1020,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   onUploadAvatar={uploadAvatar}
                   player={player}
                   profiles={remoteState.profiles}
+                  canRemove={gameMode !== 'solo' && players.length > 1}
+                  onRemovePlayer={removePlayer}
                 />
               ))}
             </div>
+            {gameMode !== 'solo' && (
+              <button className="pixel-button alt wide" type="button" onClick={addPlayer}>
+                Добавить персонажа
+              </button>
+            )}
           </article>
 
           <aside className="pixel-panel stats-panel">
@@ -994,11 +1043,14 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                 <p>
                   Общий счёт: {currentPairBoard.totalScore} · Закрыто дел: {currentPairBoard.totalChores}
                 </p>
-                {players.slice(0, gameMode === 'solo' ? 1 : 2).map((player, index) => (
+                {activePlayerIndexes.map((index) => {
+                  const player = players[index]
+                  return (
                   <p key={index}>
-                    {player.name}: побед {currentPairBoard.wins[normalizeEmail(gamePlayers[index as 0 | 1].email)] || 0}
+                    {player.name}: побед {currentPairBoard.wins[normalizeEmail(gamePlayers[index]?.email || '')] || 0}
                   </p>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               <p className="hint">У этой пары ещё нет сохранённых игр. Самое время открыть сезон.</p>
@@ -1036,16 +1088,22 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           </article>
 
           <ChoreLibrary
-            chores={chores}
+            chores={sectionChores}
+            currentSection={currentSection}
             newCategoryTitle={newCategoryTitle}
             newChore={newChore}
+            newSectionTitle={newSectionTitle}
             onAddCategory={addCategory}
             onAddChild={addChild}
             onAddChore={addChore}
+            onAddSection={addSection}
             onDeleteItem={deleteItem}
             onNewCategoryTitle={setNewCategoryTitle}
             onNewChore={setNewChore}
+            onNewSectionTitle={setNewSectionTitle}
+            onSectionChange={setCurrentSection}
             onUpdateItem={updateItem}
+            sections={sections}
           />
 
           <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} stats={choreStats} players={gamePlayers} />
@@ -1090,33 +1148,33 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
           <div className="battlefield">
             {activePlayerIndexes.map((playerIndex) => {
-              const plan = playerPlans[playerIndex as 0 | 1]
+              const plan = playerPlans[playerIndex] || []
               const totalMinutes = plan.reduce((sum, chore) => sum + chore.minutes, 0)
               const done = plan.filter((chore) => chore.completed).length
               return (
                 <article className="pixel-panel player-board" key={playerIndex}>
                   <div className="player-card">
-                    <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} avatarUrl={players[playerIndex as 0 | 1].avatarUrl} />
+                    <PixelAvatar avatar={players[playerIndex].avatar} avatarUrl={players[playerIndex].avatarUrl} />
                     <div>
-                      <h2>{players[playerIndex as 0 | 1].name || `Игрок ${playerIndex + 1}`}</h2>
+                      <h2>{players[playerIndex].name || `Игрок ${playerIndex + 1}`}</h2>
                       <p>
-                        {done}/{plan.length} дел · {totalMinutes} мин · текущие очки {playerScores[playerIndex as 0 | 1].total}
+                        {done}/{plan.length} дел · {totalMinutes} мин · текущие очки {playerScores[playerIndex]?.total || 0}
                       </p>
                     </div>
                   </div>
                   <button
                     className="pixel-button wide"
                     type="button"
-                    onClick={() => completeNextFor(playerIndex as 0 | 1)}
+                    onClick={() => completeNextFor(playerIndex)}
                   >
-                    {playerIndex === 0 ? 'Space' : 'Enter'}: отметить следующее
+                    {playerIndex === 0 ? 'Space' : playerIndex === 1 ? 'Enter' : 'QR'}: отметить следующее
                   </button>
                   {qrCodes[playerIndex] && (
                     <div className="qr-card">
-                      <img alt={`QR для ${players[playerIndex as 0 | 1].name}`} src={qrCodes[playerIndex]} />
+                      <img alt={`QR для ${players[playerIndex].name}`} src={qrCodes[playerIndex]} />
                       <div>
                         <strong>Сканируй телефоном</strong>
-                        <span>Откроются только дела {players[playerIndex as 0 | 1].name}</span>
+                        <span>Откроются только дела {players[playerIndex].name}</span>
                       </div>
                     </div>
                   )}
@@ -1128,7 +1186,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                         type="button"
                         onClick={() => {
                           if (!chore.completed) {
-                            completeNextFor(playerIndex as 0 | 1, chore.id)
+                            completeNextFor(playerIndex, chore.id)
                           }
                         }}
                       >
@@ -1210,7 +1268,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   : `Президент уборки: ${players[winner].name}`}
             </h2>
             <p className="certificate-name">
-              {gameMode === 'solo' ? players[0].name : winner === null ? `${players[0].name} + ${players[1].name}` : players[winner].name}
+              {gameMode === 'solo'
+                ? players[0].name
+                : winner === null
+                  ? activePlayerIndexes.map((index) => players[index].name).join(' + ')
+                  : players[winner].name}
             </p>
             <p>
               {gameMode === 'solo'
@@ -1242,32 +1304,64 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
 function ChoreLibrary({
   chores,
+  currentSection,
   newCategoryTitle,
   newChore,
+  newSectionTitle,
   onAddCategory,
   onAddChild,
   onAddChore,
+  onAddSection,
   onDeleteItem,
   onNewCategoryTitle,
   onNewChore,
+  onNewSectionTitle,
+  onSectionChange,
   onUpdateItem,
+  sections,
 }: {
   chores: ChoreItem[]
+  currentSection: string
   newCategoryTitle: string
   newChore: { title: string; minutes: number; difficulty: Difficulty }
+  newSectionTitle: string
   onAddCategory: () => void
   onAddChild: (groupId: string) => void
   onAddChore: () => void
+  onAddSection: () => void
   onDeleteItem: (id: string, childId?: string) => void
   onNewCategoryTitle: (title: string) => void
   onNewChore: (chore: { title: string; minutes: number; difficulty: Difficulty }) => void
+  onNewSectionTitle: (title: string) => void
+  onSectionChange: (title: string) => void
   onUpdateItem: (id: string, patch: Partial<ChoreTask | ChoreGroup>, childId?: string) => void
+  sections: string[]
 }) {
   return (
     <article className="pixel-panel chores-panel">
       <div className="panel-title">
         <span>3</span>
         <h2>Общий список дел</h2>
+      </div>
+      <div className="section-switcher">
+        <label>
+          Раздел
+          <select value={currentSection} onChange={(event) => onSectionChange(event.target.value)}>
+            {sections.map((section) => (
+              <option key={section} value={section}>
+                {section}
+              </option>
+            ))}
+          </select>
+        </label>
+        <input
+          placeholder="Новый раздел, например: уход за собой"
+          value={newSectionTitle}
+          onChange={(event) => onNewSectionTitle(event.target.value)}
+        />
+        <button className="pixel-button alt" type="button" onClick={onAddSection}>
+          Добавить раздел
+        </button>
       </div>
       <div className="add-chore">
         <input
@@ -1391,11 +1485,11 @@ function ExtraChoreForm({
   onChange,
   players,
 }: {
-  extraChore: { assignedTo: 0 | 1; title: string; minutes: number; difficulty: Difficulty; rating: number }
+  extraChore: { assignedTo: number; title: string; minutes: number; difficulty: Difficulty; rating: number }
   mode: GameMode
   onAdd: () => void
-  onChange: (value: { assignedTo: 0 | 1; title: string; minutes: number; difficulty: Difficulty; rating: number }) => void
-  players: [Player, Player]
+  onChange: (value: { assignedTo: number; title: string; minutes: number; difficulty: Difficulty; rating: number }) => void
+  players: Player[]
 }) {
   return (
     <article className="pixel-panel extra-panel">
@@ -1407,7 +1501,7 @@ function ExtraChoreForm({
         {mode === 'duo' && (
           <select
             value={extraChore.assignedTo}
-            onChange={(event) => onChange({ ...extraChore, assignedTo: Number(event.target.value) as 0 | 1 })}
+            onChange={(event) => onChange({ ...extraChore, assignedTo: Number(event.target.value) })}
           >
             <option value={0}>{players[0].name}</option>
             <option value={1}>{players[1].name}</option>
@@ -1516,26 +1610,26 @@ function ScoreCards({
 }: {
   assigned: AssignedChore[]
   mode: GameMode
-  onRateChore: (id: string, playerIndex: 0 | 1, rating: number) => void
-  playerPlans: readonly [AssignedChore[], AssignedChore[]]
-  playerScores: readonly [PlayerScore, PlayerScore]
-  players: [Player, Player]
+  onRateChore: (id: string, playerIndex: number, rating: number) => void
+  playerPlans: AssignedChore[][]
+  playerScores: PlayerScore[]
+  players: Player[]
 }) {
   return (
     <div className="score-grid">
-      {(mode === 'solo' ? [0] : [0, 1]).map((playerIndex) => (
+      {(mode === 'solo' ? [0] : players.map((_, index) => index)).map((playerIndex) => (
         <article className="pixel-panel score-card" key={playerIndex}>
           <div className="player-card">
-            <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} avatarUrl={players[playerIndex as 0 | 1].avatarUrl} small />
-            <h2>{players[playerIndex as 0 | 1].name}</h2>
+            <PixelAvatar avatar={players[playerIndex].avatar} avatarUrl={players[playerIndex].avatarUrl} small />
+            <h2>{players[playerIndex].name}</h2>
           </div>
-          <strong className="big-score">{playerScores[playerIndex as 0 | 1].total}</strong>
+          <strong className="big-score">{playerScores[playerIndex]?.total || 0}</strong>
           <p>
-            Дела: {playerScores[playerIndex as 0 | 1].count} · Скорость: +{playerScores[playerIndex as 0 | 1].speed} ·
-            Оценки: +{playerScores[playerIndex as 0 | 1].partner}
+            Дела: {playerScores[playerIndex]?.count || 0} · Скорость: +{playerScores[playerIndex]?.speed || 0} ·
+            Оценки: +{playerScores[playerIndex]?.partner || 0}
           </p>
           <div className="rating-list">
-            {playerPlans[playerIndex as 0 | 1]
+            {(playerPlans[playerIndex] || [])
               .filter(isCompleted)
               .map((chore) => (
                 <div className="rating-row" key={`${chore.id}-${chore.assignedTo}`}>
@@ -1547,7 +1641,7 @@ function ScoreCards({
                         className={chore.partnerRating === rating ? 'rating active' : 'rating'}
                         key={rating}
                         type="button"
-                        onClick={() => onRateChore(chore.id, playerIndex as 0 | 1, rating)}
+                        onClick={() => onRateChore(chore.id, playerIndex, rating)}
                       >
                         {rating}
                       </button>
@@ -1564,19 +1658,23 @@ function ScoreCards({
 }
 
 function ProfileEditor({
+  canRemove = false,
   index,
   onApplyProfile,
+  onRemovePlayer,
   onSaveProfile,
   onUpdatePlayer,
   onUploadAvatar,
   player,
   profiles,
 }: {
-  index: 0 | 1
-  onApplyProfile: (index: 0 | 1, profile: Profile) => void
-  onSaveProfile: (index: 0 | 1) => void
-  onUpdatePlayer: (index: 0 | 1, patch: Partial<Player>) => void
-  onUploadAvatar: (index: 0 | 1, file: File | null) => void
+  canRemove?: boolean
+  index: number
+  onApplyProfile: (index: number, profile: Profile) => void
+  onRemovePlayer: (index: number) => void
+  onSaveProfile: (index: number) => void
+  onUpdatePlayer: (index: number, patch: Partial<Player>) => void
+  onUploadAvatar: (index: number, file: File | null) => void
   player: Player
   profiles: Profile[]
 }) {
@@ -1627,6 +1725,11 @@ function ProfileEditor({
       <button className="pixel-button wide" type="button" onClick={() => onSaveProfile(index)}>
         Сохранить профиль
       </button>
+      {canRemove && (
+        <button className="tiny-button danger" type="button" onClick={() => onRemovePlayer(index)}>
+          Удалить персонажа
+        </button>
+      )}
     </div>
   )
 }
@@ -1639,7 +1742,7 @@ function Dashboard({
 }: {
   history: GameRecord[]
   leaderboard: PairLeaderboard[]
-  players: [Player, Player]
+  players: Player[]
   stats: ChoreStat[]
 }) {
   return (
@@ -1670,8 +1773,8 @@ function Dashboard({
               <div className="history-row" key={stat.title}>
                 <strong>{stat.title}</strong>
                 <span>
-                  {players[0].name}: {stat.byPlayer[normalizeEmail(players[0].email)] || 0} · {players[1].name}:{' '}
-                  {stat.byPlayer[normalizeEmail(players[1].email)] || 0} · среднее {stat.avgMinutes} мин
+                  {players.map((player) => `${player.name}: ${stat.byPlayer[normalizeEmail(player.email)] || 0}`).join(' · ')} ·
+                  среднее {stat.avgMinutes} мин
                 </span>
               </div>
             ))}
@@ -1724,7 +1827,7 @@ function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; ava
   )
 }
 
-function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sessionId: string }) {
+function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; sessionId: string }) {
   const [game, setGame] = useState<ActiveGame | null>(null)
   const [status, setStatus] = useState('Загружаю игру...')
   const [reviews, setReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
@@ -1773,6 +1876,19 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
     }
   }
 
+  const rateDoneChore = async (choreId: string, rating: number) => {
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/rate`, {
+        body: JSON.stringify({ choreId, partnerRating: rating, reviewerIndex: playerIndex }),
+        method: 'POST',
+      })
+      setGame(result.game)
+      setStatus('Оценка сохранена')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось сохранить оценку')
+    }
+  }
+
   const addMobileExtra = async () => {
     const title = mobileExtra.title.trim()
     if (!title) {
@@ -1811,8 +1927,20 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
   }
 
   const player = game.players[playerIndex]
+  if (!player) {
+    return (
+      <main className="mobile-shell">
+        <section className="pixel-panel mobile-panel">
+          <p className="eyebrow">Weekend Cleanup Quest</p>
+          <h1>Игрок не найден</h1>
+          <p>Проверь QR-код или попроси открыть свежую ссылку.</p>
+        </section>
+      </main>
+    )
+  }
   const chores = game.chores.filter((chore) => chore.assignedTo === playerIndex)
   const reviewChores = game.chores.filter((chore) => chore.extra && !chore.approved && chore.reviewBy === playerIndex)
+  const ratingChores = game.chores.filter((chore) => chore.completed && chore.assignedTo !== playerIndex && (!chore.extra || chore.approved))
   const done = chores.filter((chore) => chore.completed).length
   const next = chores.find((chore) => !chore.completed)
 
@@ -1885,6 +2013,33 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
                   <button className="pixel-button start wide" type="button" onClick={() => approveExtra(chore.id)}>
                     Подтвердить
                   </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {ratingChores.length > 0 && (
+          <div className="review-box mobile-rating-box">
+            <h2>Оценить других</h2>
+            <p className="hint">Можно пройтись по очереди по делам других участников. Свои дела здесь не показываются.</p>
+            {ratingChores.map((chore) => {
+              const owner = game.players[chore.assignedTo]
+              return (
+                <div className="review-card" key={`rate-${chore.id}-${chore.assignedTo}`}>
+                  <strong>{owner?.name || `Игрок ${chore.assignedTo + 1}`}: {chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</strong>
+                  <div>
+                    {[0, 1, 2, 3].map((rating) => (
+                      <button
+                        className={chore.ratings?.[playerIndex] === rating ? 'rating active' : 'rating'}
+                        key={rating}
+                        type="button"
+                        onClick={() => rateDoneChore(chore.id, rating)}
+                      >
+                        {rating}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )
             })}
