@@ -188,6 +188,8 @@ const createActiveGame = async (request, response) => {
     childPlayerIndex: Number.isInteger(body.childPlayerIndex) ? Number(body.childPlayerIndex) : previous.childPlayerIndex,
     parentPlayerIndex: Number.isInteger(body.parentPlayerIndex) ? Number(body.parentPlayerIndex) : previous.parentPlayerIndex,
     requirePhotoProof: Boolean(body.requirePhotoProof ?? previous.requirePhotoProof),
+    phase: previous.phase || 'play',
+    finishedPlayers: Array.isArray(previous.finishedPlayers) ? previous.finishedPlayers : [],
     startedAt: previous.startedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -276,8 +278,11 @@ const addActiveExtraChore = async (gameId, request, response) => {
 
   const solo = game.mode === 'solo'
   const difficulty = solo ? String(body.difficulty || 'normal') : 'normal'
-  const partnerRating = solo ? Number(body.partnerRating || 0) : 0
   const completedAt = Date.now()
+  const reviewBy =
+    game.mode === 'childQuest' && Number.isInteger(game.parentPlayerIndex)
+      ? Number(game.parentPlayerIndex)
+      : game.players.findIndex((_, index) => index !== assignedTo)
   const chore = {
     id: makeId(),
     title,
@@ -288,10 +293,10 @@ const addActiveExtraChore = async (gameId, request, response) => {
     completed: true,
     completedAt,
     actualMinutes: Number(body.actualMinutes || body.minutes || 10),
-    partnerRating,
+    partnerRating: 0,
     extra: true,
     approved: solo,
-    reviewBy: solo ? assignedTo : game.players.findIndex((_, index) => index !== assignedTo),
+    reviewBy: solo ? undefined : reviewBy >= 0 ? reviewBy : undefined,
   }
 
   game.chores = [...(game.chores || []), chore]
@@ -319,6 +324,51 @@ const approveActiveExtraChore = async (gameId, request, response) => {
       ? { ...chore, difficulty, partnerRating, approved: true, reviewBy: undefined }
       : chore,
   )
+  game.updatedAt = new Date().toISOString()
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+}
+
+const finishActiveGame = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+
+  const playerIndex = Number(body.playerIndex)
+  if (!Number.isInteger(playerIndex) || playerIndex < 0 || playerIndex >= game.players.length) {
+    sendError(response, 400, 'Нужен номер игрока.')
+    return
+  }
+
+  game.finishedPlayers = [...new Set([...(game.finishedPlayers || []), playerIndex])]
+  game.phase = game.mode === 'solo' || game.mode === 'childQuest' ? 'ceremony' : 'awaiting_rating'
+  game.updatedAt = new Date().toISOString()
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+}
+
+const updateActiveGamePhase = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+
+  const phase = String(body.phase || '')
+  if (!['play', 'rating', 'awaiting_rating', 'ceremony'].includes(phase)) {
+    sendError(response, 400, 'Некорректная фаза игры.')
+    return
+  }
+
+  game.phase = phase
   game.updatedAt = new Date().toISOString()
   db.activeGames[gameId] = game
   writeDb(db)
@@ -552,6 +602,14 @@ const server = createServer(async (request, response) => {
     }
     if (activeRoute && request.method === 'POST' && activeRoute.action === 'rate') {
       await rateActiveChore(activeRoute.id, request, response)
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'finish') {
+      await finishActiveGame(activeRoute.id, request, response)
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'phase') {
+      await updateActiveGamePhase(activeRoute.id, request, response)
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/profiles') {

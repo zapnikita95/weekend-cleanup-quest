@@ -4,6 +4,7 @@ import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
 type Phase = 'setup' | 'play' | 'rating' | 'ceremony'
+type ServerPhase = 'play' | 'rating' | 'awaiting_rating' | 'ceremony'
 type GameMode = 'duo' | 'solo' | 'childQuest'
 type TierId = 'gold' | 'silver' | 'bronze' | 'none'
 
@@ -116,6 +117,8 @@ type ActiveGame = {
   childPlayerIndex?: number
   parentPlayerIndex?: number
   requirePhotoProof?: boolean
+  phase?: ServerPhase
+  finishedPlayers?: number[]
   startedAt: string
   updatedAt: string
 }
@@ -243,6 +246,30 @@ const pairPlayerEmail = (pairEmail: string, index: number) => {
 const isGroup = (item: ChoreItem): item is ChoreGroup => 'children' in item
 const isCompleted = (chore: AssignedChore): chore is CompletedChore =>
   chore.completed && typeof chore.completedAt === 'number'
+
+const computePlayerScore = (assigned: AssignedChore[], playerIndex: number): PlayerScore => {
+  const completed = assigned.filter(
+    (chore) => chore.assignedTo === playerIndex && isCompleted(chore) && (!chore.extra || chore.approved),
+  )
+  const base = completed.reduce((sum, chore) => sum + 10 + chore.minutes + difficultyBonus[chore.difficulty], 0)
+  const speed = completed.reduce((sum, chore) => {
+    if (!chore.actualMinutes || chore.actualMinutes >= chore.minutes) return sum
+    return sum + Math.max(2, Math.ceil((chore.minutes - chore.actualMinutes) / 2))
+  }, 0)
+  const partner = completed.reduce((sum, chore) => sum + chore.partnerRating * 5, 0)
+  const streak = completed.length >= 2 ? completed.length * 4 : 0
+  const categoryBonus = [...new Set(completed.map((chore) => chore.parentId).filter(Boolean))].reduce((sum, parentId) => {
+    const groupTasks = assigned.filter((chore) => chore.assignedTo === playerIndex && chore.parentId === parentId)
+    return groupTasks.length > 1 && groupTasks.every((chore) => chore.completed) ? sum + 12 : sum
+  }, 0)
+  return { total: base + speed + partner + streak + categoryBonus, base, speed, partner, streak, count: completed.length }
+}
+
+const serverPhaseToLocal = (serverPhase?: ServerPhase): Phase => {
+  if (serverPhase === 'ceremony') return 'ceremony'
+  if (serverPhase === 'awaiting_rating' || serverPhase === 'rating') return 'rating'
+  return 'play'
+}
 
 const shuffle = <T,>(items: T[]) => {
   const copy = [...items]
@@ -426,6 +453,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [activeGameId, setActiveGameId] = useState(() => initialGameId || readLocalJson<string>('wcq-active-game-id', ''))
   const [qrCodes, setQrCodes] = useState<string[]>([])
   const [playerLinks, setPlayerLinks] = useState<string[]>([])
+  const [awaitingReview, setAwaitingReview] = useState(false)
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
   const childPlayerIndex = useMemo(() => players.findIndex((player) => player.isChild), [players])
@@ -523,6 +551,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       try {
         const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}`)
         setAssigned(result.game.chores)
+        const serverPhase = result.game.phase
+        if (serverPhase === 'ceremony') {
+          setPhase('ceremony')
+          setAwaitingReview(false)
+        } else if (serverPhase === 'awaiting_rating') {
+          setAwaitingReview(true)
+          if (phase === 'play') setPhase('rating')
+        } else if (serverPhase === 'rating' && phase === 'play') {
+          setPhase('rating')
+        }
       } catch {
         // The main screen remains usable even if a phone briefly loses sync.
       }
@@ -554,26 +592,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
   const choreStats = useMemo(() => computeChoreStats(currentPairGames, gamePlayers), [currentPairGames, gamePlayers])
 
-  const scoreFor = useCallback(
-    (playerIndex: number): PlayerScore => {
-      const completed = assigned.filter(
-        (chore) => chore.assignedTo === playerIndex && isCompleted(chore) && (!chore.extra || chore.approved),
-      )
-      const base = completed.reduce((sum, chore) => sum + 10 + chore.minutes + difficultyBonus[chore.difficulty], 0)
-      const speed = completed.reduce((sum, chore) => {
-        if (!chore.actualMinutes || chore.actualMinutes >= chore.minutes) return sum
-        return sum + Math.max(2, Math.ceil((chore.minutes - chore.actualMinutes) / 2))
-      }, 0)
-      const partner = completed.reduce((sum, chore) => sum + chore.partnerRating * 5, 0)
-      const streak = completed.length >= 2 ? completed.length * 4 : 0
-      const categoryBonus = [...new Set(completed.map((chore) => chore.parentId).filter(Boolean))].reduce((sum, parentId) => {
-        const groupTasks = assigned.filter((chore) => chore.assignedTo === playerIndex && chore.parentId === parentId)
-        return groupTasks.length > 1 && groupTasks.every((chore) => chore.completed) ? sum + 12 : sum
-      }, 0)
-      return { total: base + speed + partner + streak + categoryBonus, base, speed, partner, streak, count: completed.length }
-    },
-    [assigned],
-  )
+  const scoreFor = useCallback((playerIndex: number): PlayerScore => computePlayerScore(assigned, playerIndex), [assigned])
 
   const playerScores = players.map((_, index) => scoreFor(index))
   const childCoins = useMemo(() => {
@@ -660,11 +679,28 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setPrizeTiers(result.game.prizeTiers || defaultPrizeTiers)
       setRequirePhotoProof(Boolean(result.game.requirePhotoProof))
       setTargetScore(result.game.targetScore || targetScore)
-      setPhase('play')
+      setPhase(serverPhaseToLocal(result.game.phase))
+      setAwaitingReview(result.game.phase === 'awaiting_rating')
       window.history.replaceState(null, '', `/game/${result.game.id}`)
       setStatus('Активная игра загружена.')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить активную игру.')
+    }
+  }
+
+  const advancePhase = async (nextPhase: Phase) => {
+    setPhase(nextPhase)
+    if (!activeGameId) return
+    const serverPhase: ServerPhase =
+      nextPhase === 'ceremony' ? 'ceremony' : nextPhase === 'rating' ? 'rating' : 'play'
+    try {
+      await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}/phase`, {
+        body: JSON.stringify({ phase: serverPhase }),
+        method: 'POST',
+      })
+      if (serverPhase === 'ceremony') setAwaitingReview(false)
+    } catch {
+      // Local phase still works if the server is briefly unavailable.
     }
   }
 
@@ -960,9 +996,23 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [completeNextFor])
 
-  const rateChore = (id: string, playerIndex: number, rating: number) => {
+  const rateChore = async (id: string, ratedPlayerIndex: number, rating: number) => {
+    const reviewerIndex = activePlayerIndexes.find((index) => index !== ratedPlayerIndex) ?? 0
+    if (activeGameId) {
+      try {
+        const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}/rate`, {
+          body: JSON.stringify({ choreId: id, partnerRating: rating, reviewerIndex }),
+          method: 'POST',
+        })
+        setAssigned(result.game.chores)
+        setSavedGameId('')
+        return
+      } catch {
+        // Fall back to local state if the server is briefly unavailable.
+      }
+    }
     setAssigned((current) =>
-      current.map((chore) => (chore.id === id && chore.assignedTo === playerIndex ? { ...chore, partnerRating: rating } : chore)),
+      current.map((chore) => (chore.id === id && chore.assignedTo === ratedPlayerIndex ? { ...chore, partnerRating: rating } : chore)),
     )
     setSavedGameId('')
   }
@@ -984,10 +1034,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       completed: true,
       completedAt: Date.now(),
       actualMinutes: extraChore.minutes,
-      partnerRating: gameMode === 'solo' ? extraChore.rating : 0,
+      partnerRating: 0,
       extra: true,
       approved: gameMode === 'solo',
-      reviewBy: gameMode === 'solo' ? 0 : activePlayerIndexes.find((index) => index !== extraChore.assignedTo) ?? 0,
+      reviewBy:
+        gameMode === 'solo'
+          ? undefined
+          : gameMode === 'childQuest' && parentPlayerIndex >= 0
+            ? parentPlayerIndex
+            : activePlayerIndexes.find((index) => index !== extraChore.assignedTo) ?? 0,
     }
 
     if (!activeGameId) {
@@ -1003,7 +1058,13 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       })
       setAssigned(result.game.chores)
       setExtraChore((current) => ({ ...current, title: '' }))
-      setStatus(gameMode === 'solo' ? 'Дополнительное дело добавлено.' : 'Дополнительное дело ждёт подтверждения партнёра.')
+      setStatus(
+        gameMode === 'solo'
+          ? 'Дополнительное дело добавлено.'
+          : gameMode === 'childQuest'
+            ? 'Дополнительное дело ждёт подтверждения родителя.'
+            : 'Дополнительное дело ждёт подтверждения другого участника.',
+      )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось добавить дополнительное дело.')
     }
@@ -1037,6 +1098,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     setRoundStartedAt(null)
     setSavedGameId('')
     setActiveGameId('')
+    setAwaitingReview(false)
     window.history.replaceState(null, '', '/')
   }
 
@@ -1135,6 +1197,28 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           {musicOn ? 'Музыка: ON' : 'Музыка: OFF'}
         </button>
       </header>
+
+      {awaitingReview && phase === 'play' && gameMode === 'duo' && (
+        <article className="pixel-panel review-alert">
+          <p className="eyebrow">Нужна ваша оценка</p>
+          <h2>Участник завершил игру и ждёт проверки</h2>
+          <p>Откройте экран оценок, поставьте баллы за выполненные дела и подведите итоги.</p>
+          <button className="pixel-button start" type="button" onClick={() => advancePhase('rating')}>
+            Перейти к оценкам
+          </button>
+        </article>
+      )}
+
+      {awaitingReview && phase === 'play' && gameMode === 'childQuest' && (
+        <article className="pixel-panel review-alert">
+          <p className="eyebrow">Квест завершён</p>
+          <h2>Ребёнок нажал «Завершить»</h2>
+          <p>Можно сразу открыть итоги и показать приз.</p>
+          <button className="pixel-button start" type="button" onClick={() => advancePhase('ceremony')}>
+            Показать итоги
+          </button>
+        </article>
+      )}
 
       {phase === 'setup' && (
         <section className="setup-grid">
@@ -1366,8 +1450,12 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   : 'Space / Enter'}
               </strong>
             </div>
-            <button className="pixel-button" type="button" onClick={() => setPhase(gameMode === 'childQuest' ? 'ceremony' : 'rating')}>
-              {gameMode === 'childQuest' ? 'Завершить квест' : 'К оценкам'}
+            <button
+              className="pixel-button"
+              type="button"
+              onClick={() => advancePhase(gameMode === 'childQuest' || gameMode === 'solo' ? 'ceremony' : 'rating')}
+            >
+              {gameMode === 'childQuest' ? 'Завершить квест' : gameMode === 'solo' ? 'Подвести итоги' : 'К оценкам'}
             </button>
           </div>
 
@@ -1451,20 +1539,24 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           {allDone && (
             <div className="pixel-panel all-done">
               <h2>Все дела закрыты!</h2>
-              <button className="pixel-button start" type="button" onClick={() => setPhase(gameMode === 'childQuest' ? 'ceremony' : 'rating')}>
-                {gameMode === 'childQuest' ? 'Показать приз' : 'К оценкам партнёра'}
+              <button
+                className="pixel-button start"
+                type="button"
+                onClick={() => advancePhase(gameMode === 'childQuest' || gameMode === 'solo' ? 'ceremony' : 'rating')}
+              >
+                {gameMode === 'childQuest' ? 'Показать приз' : gameMode === 'solo' ? 'Подвести итоги' : 'К оценкам'}
               </button>
             </div>
           )}
         </section>
       )}
 
-      {phase === 'rating' && gameMode !== 'childQuest' && (
+      {phase === 'rating' && gameMode === 'duo' && (
         <section className="results-screen">
           <article className="pixel-panel winner-card calm">
             <p className="eyebrow">Сначала оценки</p>
-            <h2>{gameMode === 'solo' ? 'Добавь попутные дела и оцени себя' : 'Поставьте друг другу оценки'}</h2>
-            <p>Итоги ещё скрыты. Добавьте всё, что сделали сверх плана, затем нажмите “Подвести итоги”.</p>
+            <h2>Поставьте друг другу оценки</h2>
+            <p>Итоги ещё скрыты. Добавьте всё, что сделали сверх плана, затем нажмите «Подвести итоги».</p>
           </article>
           <ExtraChoreForm
             extraChore={extraChore}
@@ -1486,12 +1578,13 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             players={players}
             playerScores={playerScores}
             onRateChore={rateChore}
+            showRatings
           />
           <div className="actions">
-            <button className="pixel-button start ceremony-button" type="button" onClick={() => setPhase('ceremony')}>
+            <button className="pixel-button start ceremony-button" type="button" onClick={() => advancePhase('ceremony')}>
               Подвести итоги
             </button>
-            <button className="pixel-button" type="button" onClick={() => setPhase('play')}>
+            <button className="pixel-button" type="button" onClick={() => advancePhase('play')}>
               Вернуться к списку
             </button>
           </div>
@@ -1549,6 +1642,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             players={players}
             playerScores={playerScores}
             onRateChore={rateChore}
+            showRatings={gameMode === 'duo'}
+            readOnly
           />
           <div className="actions">
             <button className="pixel-button start" disabled={Boolean(savedGameId)} type="button" onClick={saveGame}>
@@ -1782,28 +1877,22 @@ function ExtraChoreForm({
           onChange={(event) => onChange({ ...extraChore, minutes: Number(event.target.value) })}
         />
         {mode === 'solo' && (
-          <>
-            <select
-              value={extraChore.difficulty}
-              onChange={(event) => onChange({ ...extraChore, difficulty: event.target.value as Difficulty })}
-            >
-              <option value="easy">легко</option>
-              <option value="normal">обычно</option>
-              <option value="hard">сложно</option>
-            </select>
-            <select value={extraChore.rating} onChange={(event) => onChange({ ...extraChore, rating: Number(event.target.value) })}>
-              <option value={0}>0 баллов</option>
-              <option value={1}>1 балл</option>
-              <option value={2}>2 балла</option>
-              <option value={3}>3 балла</option>
-            </select>
-          </>
+          <select
+            value={extraChore.difficulty}
+            onChange={(event) => onChange({ ...extraChore, difficulty: event.target.value as Difficulty })}
+          >
+            <option value="easy">легко</option>
+            <option value="normal">обычно</option>
+            <option value="hard">сложно</option>
+          </select>
         )}
         <button className="pixel-button start" type="button" onClick={onAdd}>
           Добавить сделанное
         </button>
       </div>
-      {mode === 'duo' && <p className="hint">Партнёр подтвердит сложность и оценку на своей QR-странице.</p>}
+      {mode === 'duo' && <p className="hint">Другой участник подтвердит сложность и оценку на своей QR-странице.</p>}
+      {mode === 'childQuest' && <p className="hint">Родитель подтвердит сложность и оценку на главном экране.</p>}
+      {mode === 'solo' && <p className="hint">Баллы за доп. дела считаются только по времени и сложности — без самооценки.</p>}
     </article>
   )
 }
@@ -1869,6 +1958,8 @@ function ScoreCards({
   playerPlans,
   playerScores,
   players,
+  readOnly = false,
+  showRatings = false,
 }: {
   assigned: AssignedChore[]
   mode: GameMode
@@ -1876,10 +1967,14 @@ function ScoreCards({
   playerPlans: AssignedChore[][]
   playerScores: PlayerScore[]
   players: Player[]
+  readOnly?: boolean
+  showRatings?: boolean
 }) {
+  const visiblePlayers = mode === 'solo' ? [0] : mode === 'childQuest' ? playerPlans.map((_, index) => index).filter((index) => (playerPlans[index] || []).some(isCompleted)) : players.map((_, index) => index)
+
   return (
     <div className="score-grid">
-      {(mode === 'solo' ? [0] : players.map((_, index) => index)).map((playerIndex) => (
+      {visiblePlayers.map((playerIndex) => (
         <article className="pixel-panel score-card" key={playerIndex}>
           <div className="player-card">
             <PixelAvatar avatar={players[playerIndex].avatar} avatarUrl={players[playerIndex].avatarUrl} small />
@@ -1887,8 +1982,8 @@ function ScoreCards({
           </div>
           <strong className="big-score">{playerScores[playerIndex]?.total || 0}</strong>
           <p>
-            Дела: {playerScores[playerIndex]?.count || 0} · Скорость: +{playerScores[playerIndex]?.speed || 0} ·
-            Оценки: +{playerScores[playerIndex]?.partner || 0}
+            Дела: {playerScores[playerIndex]?.count || 0} · Скорость: +{playerScores[playerIndex]?.speed || 0}
+            {showRatings ? ` · Оценки: +${playerScores[playerIndex]?.partner || 0}` : ''}
           </p>
           <div className="rating-list">
             {(playerPlans[playerIndex] || [])
@@ -1897,21 +1992,32 @@ function ScoreCards({
                 <div className="rating-row" key={`${chore.id}-${chore.assignedTo}`}>
                   <span>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</span>
                   {chore.extra && !chore.approved && <em>ждёт подтверждения</em>}
-                  <div>
-                    {[0, 1, 2, 3].map((rating) => (
-                      <button
-                        className={chore.partnerRating === rating ? 'rating active' : 'rating'}
-                        key={rating}
-                        type="button"
-                        onClick={() => onRateChore(chore.id, playerIndex, rating)}
-                      >
-                        {rating}
-                      </button>
-                    ))}
-                  </div>
+                  {showRatings && (
+                    <div>
+                      {[0, 1, 2, 3].map((rating) => (
+                        <button
+                          className={chore.partnerRating === rating ? 'rating active' : 'rating'}
+                          disabled={readOnly}
+                          key={rating}
+                          type="button"
+                          onClick={() => onRateChore(chore.id, playerIndex, rating)}
+                        >
+                          {rating}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!showRatings && (
+                    <small>
+                      +{10 + chore.minutes + difficultyBonus[chore.difficulty]}
+                      {chore.partnerRating > 0 ? ` · оценка +${chore.partnerRating * 5}` : ''}
+                    </small>
+                  )}
                 </div>
               ))}
-            {!assigned.some((chore) => chore.assignedTo === playerIndex && chore.completed) && <p className="hint">Нет закрытых дел для оценки.</p>}
+            {!assigned.some((chore) => chore.assignedTo === playerIndex && chore.completed) && (
+              <p className="hint">Нет закрытых дел.</p>
+            )}
           </div>
         </article>
       ))}
@@ -2155,7 +2261,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
   const [game, setGame] = useState<ActiveGame | null>(null)
   const [status, setStatus] = useState('Загружаю игру...')
   const [reviews, setReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
-  const [mobileExtra, setMobileExtra] = useState({ title: '', difficulty: 'normal' as Difficulty, rating: 2 })
+  const [mobileExtra, setMobileExtra] = useState({ title: '', difficulty: 'normal' as Difficulty })
 
   const loadGame = useCallback(async () => {
     try {
@@ -2225,16 +2331,34 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
           assignedTo: playerIndex,
           difficulty: mobileExtra.difficulty,
           minutes: 10,
-          partnerRating: mobileExtra.rating,
           title,
         }),
         method: 'POST',
       })
       setGame(result.game)
-      setMobileExtra({ title: '', difficulty: 'normal', rating: 2 })
-      setStatus(result.game.mode === 'solo' ? 'Дополнительное дело добавлено' : 'Дело отправлено партнёру на подтверждение')
+      setMobileExtra({ title: '', difficulty: 'normal' })
+      setStatus(
+        result.game.mode === 'solo'
+          ? 'Дополнительное дело добавлено'
+          : result.game.mode === 'childQuest'
+            ? 'Дело отправлено родителю на подтверждение'
+            : 'Дело отправлено на подтверждение',
+      )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось добавить дело')
+    }
+  }
+
+  const finishGame = async () => {
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/finish`, {
+        body: JSON.stringify({ playerIndex }),
+        method: 'POST',
+      })
+      setGame(result.game)
+      setStatus(result.game.phase === 'ceremony' ? 'Игра завершена' : 'Ждём оценку')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось завершить игру')
     }
   }
 
@@ -2265,13 +2389,16 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
   const chores = game.chores.filter((chore) => chore.assignedTo === playerIndex)
   const reviewChores = game.chores.filter((chore) => chore.extra && !chore.approved && chore.reviewBy === playerIndex)
   const ratingChores =
-    game.mode === 'childQuest'
-      ? []
-      : game.chores.filter((chore) => chore.completed && chore.assignedTo !== playerIndex && (!chore.extra || chore.approved))
+    game.mode === 'duo'
+      ? game.chores.filter((chore) => chore.completed && chore.assignedTo !== playerIndex && (!chore.extra || chore.approved))
+      : []
   const done = chores.filter((chore) => chore.completed).length
-  const next = chores.find((chore) => !chore.completed)
   const childCoins = chores.filter((chore) => chore.completed).reduce((sum, chore) => sum + choreBasePoints(chore), 0)
   const childTarget = game.targetScore || 0
+  const playerScore = computePlayerScore(game.chores, playerIndex)
+  const childTier = game.mode === 'childQuest' ? getTierFromScore(childCoins, childTarget) : 'none'
+  const soloWon = game.mode === 'solo' && playerScore.total >= Math.ceil((game.targetScore || 0) * 0.9)
+  const playerFinished = (game.finishedPlayers || []).includes(playerIndex)
   const playerLink = `${getShareOrigin()}/player/${sessionId}/${playerIndex}`
 
   const shareLink = async () => {
@@ -2281,6 +2408,76 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
     } catch {
       setStatus(playerLink)
     }
+  }
+
+  if (game.phase === 'ceremony') {
+    const prizeLabel =
+      game.mode === 'childQuest' && childTier !== 'none'
+        ? game.prizeTiers?.find((tier) => tier.id === childTier)?.label || 'заслуженный приз'
+        : game.mode === 'solo' && soloWon
+          ? game.prize || 'выбери себе приятный приз'
+          : ''
+
+    return (
+      <main className={game.mode === 'childQuest' ? 'mobile-shell kids-mode' : 'mobile-shell'}>
+        <section className="pixel-panel mobile-panel mobile-results">
+          {game.mode === 'childQuest' && childTier !== 'none' && (
+            <div className="ceremony-medal mobile-medal">
+              <PrizeSprite tier={childTier as Exclude<TierId, 'none'>} />
+            </div>
+          )}
+          <p className="eyebrow">Итоги игры</p>
+          <h1>{player.name}</h1>
+          <strong className="mobile-final-score">{game.mode === 'childQuest' ? childCoins : playerScore.total}</strong>
+          <p className="mobile-score-breakdown">
+            {game.mode === 'childQuest'
+              ? `Монеты: ${childCoins} / ${childTarget}`
+              : `Очки: ${playerScore.total} · дела +${playerScore.base} · скорость +${playerScore.speed}`}
+          </p>
+          {prizeLabel ? (
+            <article className="mobile-prize-card">
+              <p className="eyebrow">Твой приз</p>
+              <h2>{prizeLabel}</h2>
+            </article>
+          ) : (
+            <p className="hint">
+              {game.mode === 'childQuest'
+                ? `Набрано ${childCoins} из ${childTarget} монет. Приз пока не разблокирован, но дом стал чище!`
+                : game.mode === 'solo'
+                  ? `Цель: ${game.targetScore || 0} очков. Набрано ${playerScore.total}.`
+                  : 'Игра завершена!'}
+            </p>
+          )}
+          <div className="mobile-results-list">
+            {chores
+              .filter(isCompleted)
+              .map((chore) => (
+                <div className="mobile-result-row" key={chore.id}>
+                  <span>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</span>
+                  <strong>+{choreBasePoints(chore)}</strong>
+                </div>
+              ))}
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (playerFinished && game.phase === 'awaiting_rating' && ratingChores.length === 0) {
+    return (
+      <main className="mobile-shell">
+        <section className="pixel-panel mobile-panel mobile-waiting">
+          <p className="eyebrow">Почти готово</p>
+          <h1>Ждём оценку</h1>
+          <p>
+            Ты завершил игру. Сейчас {game.mode === 'childQuest' ? 'родитель' : 'другой участник'} ставит баллы за твои
+            дела — страница обновится сама.
+          </p>
+          <strong className="mobile-final-score">{playerScore.total}</strong>
+          <p className="hint">Пока набрано {playerScore.total} очков · {done}/{chores.length} дел</p>
+        </section>
+      </main>
+    )
   }
 
   return (
@@ -2319,7 +2516,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
 
         {reviewChores.length > 0 && (
           <div className="review-box review-popup">
-            <h2>Партнёр добавил дело</h2>
+            <h2>{game.mode === 'childQuest' ? 'Ребёнок добавил дело' : 'Нужно подтвердить дело'}</h2>
             {reviewChores.map((chore) => {
               const review = reviews[chore.id] || { difficulty: 'normal' as Difficulty, rating: 2 }
               return (
@@ -2396,33 +2593,22 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
             onChange={(event) => setMobileExtra((current) => ({ ...current, title: event.target.value }))}
           />
           {game.mode === 'solo' && (
-            <div className="mobile-extra-controls">
-              <select
-                value={mobileExtra.difficulty}
-                onChange={(event) => setMobileExtra((current) => ({ ...current, difficulty: event.target.value as Difficulty }))}
-              >
-                <option value="easy">легко</option>
-                <option value="normal">обычно</option>
-                <option value="hard">сложно</option>
-              </select>
-              <select
-                value={mobileExtra.rating}
-                onChange={(event) => setMobileExtra((current) => ({ ...current, rating: Number(event.target.value) }))}
-              >
-                <option value={0}>0 баллов</option>
-                <option value={1}>1 балл</option>
-                <option value={2}>2 балла</option>
-                <option value={3}>3 балла</option>
-              </select>
-            </div>
+            <select
+              value={mobileExtra.difficulty}
+              onChange={(event) => setMobileExtra((current) => ({ ...current, difficulty: event.target.value as Difficulty }))}
+            >
+              <option value="easy">легко</option>
+              <option value="normal">обычно</option>
+              <option value="hard">сложно</option>
+            </select>
           )}
           <button className="pixel-button alt wide" type="button" onClick={addMobileExtra}>
             Добавить дело
           </button>
         </div>
 
-        <button className="pixel-button start mobile-done" disabled={!next} type="button" onClick={() => complete()}>
-          Сделано!
+        <button className="pixel-button start mobile-done" type="button" onClick={finishGame}>
+          Завершить
         </button>
 
         {game.mode === 'childQuest' && (

@@ -2,6 +2,7 @@
   width: min(1180px, calc(100vw - 28px));
   margin: 0 auto;
   padding: 22px 0 44px;
+  box-sizing: border-box;
 }
 
 .pixel-panel {
@@ -1166,6 +1167,61 @@ label {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.mode-grid-three .pixel-button {
+  min-height: 52px;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.review-alert {
+  margin-bottom: 18px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(255, 217, 90, 0.55), rgba(255, 143, 214, 0.35));
+}
+
+.mobile-final-score {
+  display: block;
+  margin: 12px 0;
+  font-size: clamp(42px, 14vw, 72px);
+  line-height: 1;
+  color: var(--ink);
+  text-shadow: 3px 3px 0 var(--pink);
+}
+
+.mobile-score-breakdown,
+.mobile-prize-card,
+.mobile-results-list,
+.mobile-waiting p {
+  margin-top: 12px;
+}
+
+.mobile-prize-card {
+  border: 3px solid var(--ink);
+  background: rgba(255, 217, 90, 0.42);
+  padding: 14px;
+}
+
+.mobile-results-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 2px dashed rgba(31, 24, 61, 0.25);
+  padding-bottom: 8px;
+}
+
+.mobile-medal {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
 .child-setup-block,
 .parent-watch-card {
   grid-column: 1 / -1;
@@ -1315,10 +1371,30 @@ label {
 }
 
 @media (max-width: 860px) {
+  .game-shell {
+    width: calc(100vw - 16px);
+    padding: 12px 0 28px;
+  }
+
   .topbar,
   .start-card {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar {
+    padding: 14px;
+  }
+
+  .pixel-button {
+    font-size: 12px;
+    padding: 10px 10px;
+  }
+
+  .mode-grid-three .pixel-button {
+    font-size: 11px;
+    padding: 12px 8px;
+    min-height: 56px;
   }
 
   .setup-grid,

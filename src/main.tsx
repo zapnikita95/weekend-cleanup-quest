@@ -31,6 +31,7 @@ try {
       <App />
     </StrictMode>,
   )
+  document.getElementById('seo-prerender')?.remove()
 } catch (error) {
   renderFallback(error)
 }
