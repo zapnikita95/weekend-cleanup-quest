@@ -2211,6 +2211,12 @@ function ProfileEditor({
   player: Player
   profiles: Profile[]
 }) {
+  const [uploadHint, setUploadHint] = useState(player.avatarUrl ? 'Своя картинка загружена' : 'Файл не выбран')
+
+  useEffect(() => {
+    if (player.avatarUrl) setUploadHint('Своя картинка загружена')
+  }, [player.avatarUrl])
+
   return (
     <div className="player-editor">
       <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
@@ -2241,20 +2247,37 @@ function ProfileEditor({
             className={avatar === player.avatar && !player.avatarUrl ? 'avatar-choice active' : 'avatar-choice'}
             key={avatar}
             type="button"
-            onClick={() => onUpdatePlayer(index, { avatar, avatarUrl: '' })}
+            onClick={() => {
+              onUpdatePlayer(index, { avatar, avatarUrl: '' })
+              setUploadHint('Файл не выбран')
+            }}
           >
             <PixelAvatar avatar={avatar} small />
           </button>
         ))}
       </div>
-      <label className="upload-label">
-        Своя аватарка
-        <input
-          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-          type="file"
-          onChange={(event) => onUploadAvatar(index, event.target.files?.[0] || null)}
-        />
-      </label>
+      <div className="pixel-file-upload">
+        <span className="pixel-file-upload-title">Своя аватарка</span>
+        <div className="pixel-file-upload-row">
+          <label className="pixel-file-upload-button">
+            <span>Выбрать файл</span>
+            <input
+              accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+              className="pixel-file-upload-input"
+              type="file"
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null
+                setUploadHint(file?.name || 'Файл не выбран')
+                onUploadAvatar(index, file)
+              }}
+            />
+          </label>
+          <span className="pixel-file-upload-name" title={uploadHint}>
+            {uploadHint}
+          </span>
+        </div>
+        <small className="pixel-file-upload-hint">PNG, JPG, GIF или WebP</small>
+      </div>
       <button className="pixel-button wide" type="button" onClick={() => onSaveProfile(index)}>
         Сохранить профиль
       </button>
