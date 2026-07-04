@@ -1,0 +1,72 @@
+:root {
+  --ink: #1f183d;
+  --bg: #2d1f56;
+  --panel-edge: #6545c6;
+  --muted: #6b5875;
+  --sun: #ffd95a;
+  --pink: #ff79b8;
+  --aqua: #66e3ff;
+  --grass: #6bff9e;
+  font-family:
+    'Courier New',
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255, 121, 184, 0.4), transparent 24%),
+    radial-gradient(circle at 85% 10%, rgba(102, 227, 255, 0.35), transparent 26%),
+    linear-gradient(135deg, #211642 0%, #342063 48%, #1a1638 100%);
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: '';
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.07) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 2px, transparent 2px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.2));
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 4px solid var(--grass);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--pink);
+  color: var(--ink);
+}
