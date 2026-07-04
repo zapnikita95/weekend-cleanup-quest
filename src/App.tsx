@@ -4,6 +4,7 @@ import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
 type Phase = 'setup' | 'play' | 'rating' | 'ceremony'
+type GameMode = 'duo' | 'solo'
 
 type Player = {
   email: string
@@ -42,6 +43,9 @@ type AssignedChore = ChoreTask & {
   partnerRating: number
   parentId?: string
   parentTitle?: string
+  extra?: boolean
+  approved?: boolean
+  reviewBy?: 0 | 1
 }
 
 type CompletedChore = AssignedChore & {
@@ -92,6 +96,9 @@ type ActiveGame = {
   players: Player[]
   chores: AssignedChore[]
   roundMinutes: number
+  mode?: GameMode
+  prize?: string
+  targetScore?: number
   startedAt: string
   updatedAt: string
 }
@@ -302,6 +309,10 @@ function GameApp() {
     })) as [Player, Player]
   })
   const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
+  const [gameMode, setGameMode] = useState<GameMode>(() => readLocalJson<GameMode>('wcq-game-mode', 'duo'))
+  const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
+  const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
+  const [extraChore, setExtraChore] = useState({ assignedTo: 0 as 0 | 1, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
   const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(readLocalJson<unknown>('wcq-chores', null)))
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
   const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
@@ -338,6 +349,18 @@ function GameApp() {
   useEffect(() => {
     writeLocalJson('wcq-pair-email', pairEmail)
   }, [pairEmail])
+
+  useEffect(() => {
+    writeLocalJson('wcq-game-mode', gameMode)
+  }, [gameMode])
+
+  useEffect(() => {
+    writeLocalJson('wcq-prize', prize)
+  }, [prize])
+
+  useEffect(() => {
+    writeLocalJson('wcq-target-score', targetScore)
+  }, [targetScore])
 
   useEffect(() => {
     writeLocalJson('wcq-chores', chores)
@@ -388,6 +411,7 @@ function GameApp() {
     () => players.map((player, index) => ({ ...player, email: pairPlayerEmail(pairEmail, index as 0 | 1) })) as [Player, Player],
     [pairEmail, players],
   )
+  const activePlayerIndexes = useMemo(() => (gameMode === 'solo' ? [0] : [0, 1]) as (0 | 1)[], [gameMode])
   const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
   const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
   const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
@@ -395,7 +419,9 @@ function GameApp() {
 
   const scoreFor = useCallback(
     (playerIndex: 0 | 1): PlayerScore => {
-      const completed = assigned.filter((chore) => chore.assignedTo === playerIndex && isCompleted(chore))
+      const completed = assigned.filter(
+        (chore) => chore.assignedTo === playerIndex && isCompleted(chore) && (!chore.extra || chore.approved),
+      )
       const base = completed.reduce((sum, chore) => sum + 10 + chore.minutes + difficultyBonus[chore.difficulty], 0)
       const speed = completed.reduce((sum, chore) => {
         if (!chore.actualMinutes || chore.actualMinutes >= chore.minutes) return sum
@@ -410,7 +436,15 @@ function GameApp() {
 
   const playerScores = [scoreFor(0), scoreFor(1)] as const
   const winner =
-    playerScores[0].total === playerScores[1].total ? null : playerScores[0].total > playerScores[1].total ? 0 : 1
+    gameMode === 'solo'
+      ? playerScores[0].total >= Math.ceil(targetScore * 0.9)
+        ? 0
+        : null
+      : playerScores[0].total === playerScores[1].total
+        ? null
+        : playerScores[0].total > playerScores[1].total
+          ? 0
+          : 1
   const winnerEmail = winner === null ? '' : normalizeEmail(gamePlayers[winner].email)
   const allDone = assigned.length > 0 && assigned.every((chore) => chore.completed)
 
@@ -533,7 +567,13 @@ function GameApp() {
 
     const assignTask = (chore: AssignedChore, preferred?: 0 | 1) => {
       const order: (0 | 1)[] =
-        preferred !== undefined ? [preferred, preferred === 0 ? 1 : 0] : totals[0] <= totals[1] ? [0, 1] : [1, 0]
+        gameMode === 'solo'
+          ? [0]
+          : preferred !== undefined
+            ? [preferred, preferred === 0 ? 1 : 0]
+            : totals[0] <= totals[1]
+              ? [0, 1]
+              : [1, 0]
       const target = order.find((playerIndex) => totals[playerIndex] + chore.minutes <= roundMinutes)
       if (target === undefined) return false
       totals[target] += chore.minutes
@@ -547,7 +587,7 @@ function GameApp() {
 
       if (isGroup(item)) {
         const total = tasks.reduce((sum, chore) => sum + chore.minutes, 0)
-        const order: (0 | 1)[] = totals[0] <= totals[1] ? [0, 1] : [1, 0]
+        const order: (0 | 1)[] = gameMode === 'solo' ? [0] : totals[0] <= totals[1] ? [0, 1] : [1, 0]
         const wholeTarget = order.find((playerIndex) => totals[playerIndex] + total <= roundMinutes)
         if (wholeTarget !== undefined) {
           tasks.forEach((chore) => assignTask(chore, wholeTarget))
@@ -572,8 +612,11 @@ function GameApp() {
       const result = await api<{ game: ActiveGame }>('/api/active-games', {
         body: JSON.stringify({
           chores: nextAssigned,
+          mode: gameMode,
           players: gamePlayers.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
+          prize,
           roundMinutes,
+          targetScore,
         }),
         method: 'POST',
       })
@@ -645,6 +688,48 @@ function GameApp() {
     setSavedGameId('')
   }
 
+  const addExtraDoneChore = async () => {
+    const title = extraChore.title.trim()
+    if (!title) {
+      setStatus('Напиши название дополнительного дела.')
+      return
+    }
+
+    const localChore: AssignedChore = {
+      id: makeId(),
+      title,
+      minutes: extraChore.minutes,
+      difficulty: gameMode === 'solo' ? extraChore.difficulty : 'normal',
+      enabled: true,
+      assignedTo: gameMode === 'solo' ? 0 : extraChore.assignedTo,
+      completed: true,
+      completedAt: Date.now(),
+      actualMinutes: extraChore.minutes,
+      partnerRating: gameMode === 'solo' ? extraChore.rating : 0,
+      extra: true,
+      approved: gameMode === 'solo',
+      reviewBy: gameMode === 'solo' ? 0 : extraChore.assignedTo === 0 ? 1 : 0,
+    }
+
+    if (!activeGameId) {
+      setAssigned((current) => [...current, localChore])
+      setExtraChore((current) => ({ ...current, title: '' }))
+      return
+    }
+
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}/add-extra`, {
+        body: JSON.stringify(localChore),
+        method: 'POST',
+      })
+      setAssigned(result.game.chores)
+      setExtraChore((current) => ({ ...current, title: '' }))
+      setStatus(gameMode === 'solo' ? 'Дополнительное дело добавлено.' : 'Дополнительное дело ждёт подтверждения партнёра.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось добавить дополнительное дело.')
+    }
+  }
+
   const resetRound = () => {
     setPhase('setup')
     setAssigned([])
@@ -694,7 +779,10 @@ function GameApp() {
         body: JSON.stringify({
           players: gamePlayers.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
           winnerEmail,
+          mode: gameMode,
+          prize,
           roundMinutes,
+          targetScore,
           elapsedSeconds,
           scores: playerScores,
           chores: assigned,
@@ -737,8 +825,36 @@ function GameApp() {
               <span>1</span>
               <h2>Профили игроков</h2>
             </div>
+            <div className="mode-grid">
+              <button className={gameMode === 'duo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('duo')}>
+                Парная игра
+              </button>
+              <button className={gameMode === 'solo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('solo')}>
+                Одиночный режим
+              </button>
+              <label>
+                Приз / награда
+                <input
+                  placeholder={gameMode === 'solo' ? 'Например: купить себе вкусняшку' : 'Например: победителю массаж / ужин'}
+                  value={prize}
+                  onChange={(event) => setPrize(event.target.value)}
+                />
+              </label>
+              {gameMode === 'solo' && (
+                <label>
+                  Цель по очкам
+                  <input
+                    min={20}
+                    step={10}
+                    type="number"
+                    value={targetScore}
+                    onChange={(event) => setTargetScore(Number(event.target.value))}
+                  />
+                </label>
+              )}
+            </div>
             <div className="players-editor">
-              {players.map((player, index) => (
+              {players.slice(0, gameMode === 'solo' ? 1 : 2).map((player, index) => (
                 <ProfileEditor
                   index={index as 0 | 1}
                   key={index}
@@ -764,7 +880,7 @@ function GameApp() {
                 <p>
                   Общий счёт: {currentPairBoard.totalScore} · Закрыто дел: {currentPairBoard.totalChores}
                 </p>
-                {players.map((player, index) => (
+                {players.slice(0, gameMode === 'solo' ? 1 : 2).map((player, index) => (
                   <p key={index}>
                     {player.name}: побед {currentPairBoard.wins[normalizeEmail(gamePlayers[index as 0 | 1].email)] || 0}
                   </p>
@@ -823,8 +939,7 @@ function GameApp() {
           <article className="pixel-panel start-card">
             <h2>Готовы к уборке?</h2>
             <p>
-              Выбрано поддел: <strong>{selectedTasks.length}</strong>. Можно распределить целую категорию, а игра сама
-              разорвёт её, если лимит времени не даёт отдать всё одному.
+              Выбрано поддел: <strong>{selectedTasks.length}</strong>. {gameMode === 'solo' ? `Цель: ${targetScore} очков.` : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
             </p>
             <button className="pixel-button start" disabled={!selectedTasks.length} type="button" onClick={startRound}>
               Сгенерировать уборку
@@ -850,7 +965,7 @@ function GameApp() {
           </div>
 
           <div className="battlefield">
-            {[0, 1].map((playerIndex) => {
+            {activePlayerIndexes.map((playerIndex) => {
               const plan = playerPlans[playerIndex as 0 | 1]
               const totalMinutes = plan.reduce((sum, chore) => sum + chore.minutes, 0)
               const done = plan.filter((chore) => chore.completed).length
@@ -921,11 +1036,19 @@ function GameApp() {
         <section className="results-screen">
           <article className="pixel-panel winner-card calm">
             <p className="eyebrow">Сначала оценки</p>
-            <h2>Поставьте друг другу оценки</h2>
-            <p>Итоги ещё скрыты. Когда оба проставили оценки, нажмите “Подвести итоги”.</p>
+            <h2>{gameMode === 'solo' ? 'Добавь попутные дела и оцени себя' : 'Поставьте друг другу оценки'}</h2>
+            <p>Итоги ещё скрыты. Добавьте всё, что сделали сверх плана, затем нажмите “Подвести итоги”.</p>
           </article>
+          <ExtraChoreForm
+            extraChore={extraChore}
+            mode={gameMode}
+            onAdd={addExtraDoneChore}
+            onChange={setExtraChore}
+            players={players}
+          />
           <ScoreCards
             assigned={assigned}
+            mode={gameMode}
             playerPlans={playerPlans}
             players={players}
             playerScores={playerScores}
@@ -947,15 +1070,27 @@ function GameApp() {
           <article className="pixel-panel certificate">
             <div className="confetti" />
             <p className="eyebrow">Грамота победителя</p>
-            <h2>{winner === null ? 'Суперничья уборки' : `Президент уборки: ${players[winner].name}`}</h2>
-            <p className="certificate-name">{winner === null ? `${players[0].name} + ${players[1].name}` : players[winner].name}</p>
+            <h2>
+              {gameMode === 'solo'
+                ? winner === null
+                  ? 'Почти победа'
+                  : 'Личная победа!'
+                : winner === null
+                  ? 'Суперничья уборки'
+                  : `Президент уборки: ${players[winner].name}`}
+            </h2>
+            <p className="certificate-name">
+              {gameMode === 'solo' ? players[0].name : winner === null ? `${players[0].name} + ${players[1].name}` : players[winner].name}
+            </p>
             <p>
-              За героическую битву с пылью, баночками, посудой и хаосом. Дом получает +100 к уюту, а победитель получает
-              заслуженный приз.
+              {gameMode === 'solo'
+                ? `Цель: ${targetScore} очков. Набрано: ${playerScores[0].total}. ${winner === null ? 'Чуть-чуть не хватило, но дом всё равно стал лучше.' : `Награда разблокирована: ${prize || 'выбери себе приятный приз'}.`}`
+                : `За героическую битву с пылью, баночками, посудой и хаосом. Дом получает +100 к уюту, а победитель получает приз: ${prize || 'заслуженная радость'}.`}
             </p>
           </article>
           <ScoreCards
             assigned={assigned}
+            mode={gameMode}
             playerPlans={playerPlans}
             players={players}
             playerScores={playerScores}
@@ -1107,14 +1242,84 @@ function ChoreLibrary({
   )
 }
 
+function ExtraChoreForm({
+  extraChore,
+  mode,
+  onAdd,
+  onChange,
+  players,
+}: {
+  extraChore: { assignedTo: 0 | 1; title: string; minutes: number; difficulty: Difficulty; rating: number }
+  mode: GameMode
+  onAdd: () => void
+  onChange: (value: { assignedTo: 0 | 1; title: string; minutes: number; difficulty: Difficulty; rating: number }) => void
+  players: [Player, Player]
+}) {
+  return (
+    <article className="pixel-panel extra-panel">
+      <div className="panel-title">
+        <span>+</span>
+        <h2>Сделали ещё что-то?</h2>
+      </div>
+      <div className="extra-grid">
+        {mode === 'duo' && (
+          <select
+            value={extraChore.assignedTo}
+            onChange={(event) => onChange({ ...extraChore, assignedTo: Number(event.target.value) as 0 | 1 })}
+          >
+            <option value={0}>{players[0].name}</option>
+            <option value={1}>{players[1].name}</option>
+          </select>
+        )}
+        <input
+          placeholder="Например: протёр пыль в прихожей"
+          value={extraChore.title}
+          onChange={(event) => onChange({ ...extraChore, title: event.target.value })}
+        />
+        <input
+          min={1}
+          step={1}
+          type="number"
+          value={extraChore.minutes}
+          onChange={(event) => onChange({ ...extraChore, minutes: Number(event.target.value) })}
+        />
+        {mode === 'solo' && (
+          <>
+            <select
+              value={extraChore.difficulty}
+              onChange={(event) => onChange({ ...extraChore, difficulty: event.target.value as Difficulty })}
+            >
+              <option value="easy">легко</option>
+              <option value="normal">обычно</option>
+              <option value="hard">сложно</option>
+            </select>
+            <select value={extraChore.rating} onChange={(event) => onChange({ ...extraChore, rating: Number(event.target.value) })}>
+              <option value={0}>0 баллов</option>
+              <option value={1}>1 балл</option>
+              <option value={2}>2 балла</option>
+              <option value={3}>3 балла</option>
+            </select>
+          </>
+        )}
+        <button className="pixel-button start" type="button" onClick={onAdd}>
+          Добавить сделанное
+        </button>
+      </div>
+      {mode === 'duo' && <p className="hint">Партнёр подтвердит сложность и оценку на своей QR-странице.</p>}
+    </article>
+  )
+}
+
 function ScoreCards({
   assigned,
+  mode,
   onRateChore,
   playerPlans,
   playerScores,
   players,
 }: {
   assigned: AssignedChore[]
+  mode: GameMode
   onRateChore: (id: string, playerIndex: 0 | 1, rating: number) => void
   playerPlans: readonly [AssignedChore[], AssignedChore[]]
   playerScores: readonly [PlayerScore, PlayerScore]
@@ -1122,7 +1327,7 @@ function ScoreCards({
 }) {
   return (
     <div className="score-grid">
-      {[0, 1].map((playerIndex) => (
+      {(mode === 'solo' ? [0] : [0, 1]).map((playerIndex) => (
         <article className="pixel-panel score-card" key={playerIndex}>
           <div className="player-card">
             <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} avatarUrl={players[playerIndex as 0 | 1].avatarUrl} small />
@@ -1139,6 +1344,7 @@ function ScoreCards({
               .map((chore) => (
                 <div className="rating-row" key={`${chore.id}-${chore.assignedTo}`}>
                   <span>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</span>
+                  {chore.extra && !chore.approved && <em>ждёт подтверждения</em>}
                   <div>
                     {[0, 1, 2, 3].map((rating) => (
                       <button
@@ -1325,6 +1531,7 @@ function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; ava
 function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sessionId: string }) {
   const [game, setGame] = useState<ActiveGame | null>(null)
   const [status, setStatus] = useState('Загружаю игру...')
+  const [reviews, setReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
 
   const loadGame = useCallback(async () => {
     try {
@@ -1355,6 +1562,20 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
     }
   }
 
+  const approveExtra = async (choreId: string) => {
+    const review = reviews[choreId] || { difficulty: 'normal' as Difficulty, rating: 2 }
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/approve-extra`, {
+        body: JSON.stringify({ choreId, difficulty: review.difficulty, partnerRating: review.rating }),
+        method: 'POST',
+      })
+      setGame(result.game)
+      setStatus('Дополнительное дело подтверждено')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось подтвердить дело')
+    }
+  }
+
   if (!game) {
     return (
       <main className="mobile-shell">
@@ -1369,6 +1590,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
 
   const player = game.players[playerIndex]
   const chores = game.chores.filter((chore) => chore.assignedTo === playerIndex)
+  const reviewChores = game.chores.filter((chore) => chore.extra && !chore.approved && chore.reviewBy === playerIndex)
   const done = chores.filter((chore) => chore.completed).length
   const next = chores.find((chore) => !chore.completed)
 
@@ -1403,6 +1625,50 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
             </button>
           ))}
         </div>
+
+        {reviewChores.length > 0 && (
+          <div className="review-box">
+            <h2>Подтвердить дела партнёра</h2>
+            {reviewChores.map((chore) => {
+              const review = reviews[chore.id] || { difficulty: 'normal' as Difficulty, rating: 2 }
+              return (
+                <div className="review-card" key={chore.id}>
+                  <strong>{chore.title}</strong>
+                  <select
+                    value={review.difficulty}
+                    onChange={(event) =>
+                      setReviews((current) => ({
+                        ...current,
+                        [chore.id]: { ...review, difficulty: event.target.value as Difficulty },
+                      }))
+                    }
+                  >
+                    <option value="easy">легко</option>
+                    <option value="normal">обычно</option>
+                    <option value="hard">сложно</option>
+                  </select>
+                  <select
+                    value={review.rating}
+                    onChange={(event) =>
+                      setReviews((current) => ({
+                        ...current,
+                        [chore.id]: { ...review, rating: Number(event.target.value) },
+                      }))
+                    }
+                  >
+                    <option value={0}>0 баллов</option>
+                    <option value={1}>1 балл</option>
+                    <option value={2}>2 балла</option>
+                    <option value={3}>3 балла</option>
+                  </select>
+                  <button className="pixel-button start wide" type="button" onClick={() => approveExtra(chore.id)}>
+                    Подтвердить
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <button className="pixel-button start mobile-done" disabled={!next} type="button" onClick={() => complete()}>
           Сделано!

@@ -175,7 +175,10 @@ const createActiveGame = async (request, response) => {
     pairKey: getPairKey(players),
     players,
     chores,
+    mode: body.mode === 'solo' ? 'solo' : 'duo',
+    prize: String(body.prize || previous.prize || ''),
     roundMinutes: Number(body.roundMinutes || previous.roundMinutes || 0),
+    targetScore: Number(body.targetScore || previous.targetScore || 0),
     startedAt: previous.startedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -223,6 +226,78 @@ const completeActiveChore = async (gameId, request, response) => {
       : chore,
   )
   game.updatedAt = completedAt
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+}
+
+const addActiveExtraChore = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+
+  const assignedTo = Number(body.assignedTo)
+  if (assignedTo !== 0 && assignedTo !== 1) {
+    sendError(response, 400, 'Нужен исполнитель дела.')
+    return
+  }
+
+  const title = String(body.title || '').trim()
+  if (!title) {
+    sendError(response, 400, 'Нужно название дополнительного дела.')
+    return
+  }
+
+  const solo = game.mode === 'solo'
+  const difficulty = solo ? String(body.difficulty || 'normal') : 'normal'
+  const partnerRating = solo ? Number(body.partnerRating || 0) : 0
+  const completedAt = Date.now()
+  const chore = {
+    id: makeId(),
+    title,
+    minutes: Number(body.minutes || 10),
+    difficulty,
+    enabled: true,
+    assignedTo,
+    completed: true,
+    completedAt,
+    actualMinutes: Number(body.actualMinutes || body.minutes || 10),
+    partnerRating,
+    extra: true,
+    approved: solo,
+    reviewBy: solo ? assignedTo : assignedTo === 0 ? 1 : 0,
+  }
+
+  game.chores = [...(game.chores || []), chore]
+  game.updatedAt = new Date().toISOString()
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+}
+
+const approveActiveExtraChore = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+
+  const choreId = String(body.choreId || '')
+  const difficulty = String(body.difficulty || 'normal')
+  const partnerRating = Number(body.partnerRating || 0)
+
+  game.chores = (game.chores || []).map((chore) =>
+    chore.id === choreId && chore.extra
+      ? { ...chore, difficulty, partnerRating, approved: true, reviewBy: undefined }
+      : chore,
+  )
+  game.updatedAt = new Date().toISOString()
   db.activeGames[gameId] = game
   writeDb(db)
   sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
@@ -335,7 +410,10 @@ const createGame = async (request, response) => {
     pairKey: getPairKey(players),
     players,
     winnerEmail,
+    mode: body.mode === 'solo' ? 'solo' : 'duo',
+    prize: String(body.prize || ''),
     roundMinutes: Number(body.roundMinutes || 0),
+    targetScore: Number(body.targetScore || 0),
     elapsedSeconds: Number(body.elapsedSeconds || 0),
     scores: scores.map((score, index) => ({
       email: players[index].email,
@@ -403,6 +481,14 @@ const server = createServer(async (request, response) => {
     }
     if (activeRoute && request.method === 'POST' && activeRoute.action === 'complete') {
       await completeActiveChore(activeRoute.id, request, response)
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'add-extra') {
+      await addActiveExtraChore(activeRoute.id, request, response)
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'approve-extra') {
+      await approveActiveExtraChore(activeRoute.id, request, response)
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/profiles') {
