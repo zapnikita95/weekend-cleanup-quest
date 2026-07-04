@@ -184,8 +184,16 @@ label {
 .chores-panel,
 .dashboard-panel,
 .extra-panel,
-.start-card {
+.start-card,
+.stats-nav-card,
+.stats-page {
   grid-column: 1 / -1;
+}
+
+.chores-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .profiles-panel {
@@ -432,10 +440,12 @@ label {
 
 .add-chore,
 .add-category,
+.chore-compose,
 .section-switcher {
   display: grid;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .add-chore {
@@ -444,6 +454,34 @@ label {
 
 .add-category {
   grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+.chore-compose-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px 78px 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.chore-compose-row.chore-compose-category {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.chore-compose input,
+.chore-compose select {
+  min-width: 0;
+  padding: 8px;
+}
+
+.compose-add,
+.compose-add-category {
+  justify-self: end;
+  min-width: 36px;
+  padding-inline: 8px;
+}
+
+.compose-add-category {
+  white-space: nowrap;
 }
 
 .section-switcher {
@@ -457,7 +495,9 @@ label {
 .chore-list {
   display: grid;
   gap: 10px;
-  max-height: 360px;
+  flex: 1 1 auto;
+  min-height: 320px;
+  max-height: min(60vh, 680px);
   overflow: auto;
   padding-right: 6px;
 }
@@ -730,6 +770,85 @@ label {
 
 .dashboard-grid.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.stats-nav-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  border: 4px solid var(--ink);
+  background: rgba(255, 250, 240, 0.96);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 18px;
+}
+
+.stats-nav-card:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 7px 7px 0 var(--ink);
+}
+
+.stats-nav-title {
+  margin-bottom: 0;
+}
+
+.stats-nav-title h2 {
+  margin: 0;
+}
+
+.stats-nav-title .hint {
+  margin: 4px 0 0;
+}
+
+.stats-nav-arrow {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.stats-page-top {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.stats-page-title {
+  margin-bottom: 0;
+}
+
+.stats-page-tabs,
+.stats-mode-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.stats-tournament-layout {
+  display: grid;
+  gap: 24px;
+}
+
+.stats-section h3 {
+  margin: 0 0 14px;
+}
+
+.stats-section .history-list {
+  max-height: min(52vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+@media (min-width: 861px) {
+  .stats-tournament-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
 }
 
 .history-list {
@@ -1747,6 +1866,41 @@ label {
   .mode-grid label,
   .extra-grid input {
     grid-column: span 1;
+  }
+
+  .chore-compose-row {
+    grid-template-columns: minmax(0, 1fr) 46px 70px 34px;
+    gap: 6px;
+  }
+
+  .chore-compose-row.chore-compose-category {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .chore-compose input,
+  .chore-compose select {
+    padding: 7px 6px;
+    font-size: 13px;
+  }
+
+  .chore-list {
+    min-height: 45vh;
+    max-height: 58vh;
+  }
+
+  .stats-nav-card {
+    padding: 14px;
+  }
+
+  .stats-nav-arrow {
+    font-size: 26px;
+  }
+
+  .stats-page-tabs .section-tab,
+  .stats-mode-picker .section-tab {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
   }
 
   .add-chore,

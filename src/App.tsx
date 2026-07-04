@@ -510,6 +510,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [musicOn, setMusicOn] = useState(false)
   const [savedGameId, setSavedGameId] = useState('')
   const [activeGameId, setActiveGameId] = useState(() => initialGameId || readLocalJson<string>('wcq-active-game-id', ''))
+  const [setupView, setSetupView] = useState<'home' | 'stats'>(() =>
+    window.location.pathname.match(/^\/stats\/?$/) ? 'stats' : 'home',
+  )
   const [qrCodes, setQrCodes] = useState<string[]>([])
   const [playerLinks, setPlayerLinks] = useState<string[]>([])
   const [awaitingReview, setAwaitingReview] = useState(false)
@@ -528,6 +531,24 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     } catch (error) {
       setStatus(error instanceof Error ? `Сервер истории недоступен: ${error.message}` : 'Сервер истории недоступен.')
     }
+  }, [])
+
+  useEffect(() => {
+    const onPopState = () => {
+      setSetupView(window.location.pathname.match(/^\/stats\/?$/) ? 'stats' : 'home')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const goToStats = useCallback(() => {
+    window.history.pushState(null, '', '/stats')
+    setSetupView('stats')
+  }, [])
+
+  const goToSetupHome = useCallback(() => {
+    window.history.pushState(null, '', '/')
+    setSetupView('home')
   }, [])
 
   useEffect(() => {
@@ -645,12 +666,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     [pairEmail, players],
   )
   const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
-  const currentPairGames = remoteState.games.filter(
-    (game) => game.pairKey === currentPairKey && (game.mode || 'duo') === gameMode,
-  )
+  const currentPairAllGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
   const currentPairBoard = remoteState.leaderboard[gameMode].find((entry) => entry.pairKey === currentPairKey)
   const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
-  const choreStats = useMemo(() => computeChoreStats(currentPairGames, gamePlayers), [currentPairGames, gamePlayers])
 
   const scoreFor = useCallback((playerIndex: number): PlayerScore => computePlayerScore(assigned, playerIndex), [assigned])
 
@@ -1340,7 +1358,20 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
       {phase === 'setup' && showOnboarding && <OnboardingTour onDismiss={dismissOnboarding} />}
 
-      {phase === 'setup' && (
+      {phase === 'setup' && setupView === 'stats' && (
+        <section className="setup-grid">
+          <StatsPage
+            gameMode={gameMode}
+            pairGames={currentPairAllGames}
+            leaderboard={remoteState.leaderboard}
+            onBack={goToSetupHome}
+            onDeleteGame={deleteSavedGame}
+            players={gamePlayers}
+          />
+        </section>
+      )}
+
+      {phase === 'setup' && setupView === 'home' && (
         <section className="setup-grid">
           <article className={`pixel-panel profiles-panel ${showOnboarding ? 'tour-profiles' : ''}`}>
             <div className="panel-title">
@@ -1488,21 +1519,28 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             sections={sections}
           />
 
-          <Dashboard
-            gameMode={gameMode}
-            history={currentPairGames}
-            leaderboard={remoteState.leaderboard}
-            onDeleteGame={deleteSavedGame}
-            players={gamePlayers}
-            showOnboarding={showOnboarding}
-            stats={choreStats}
-          />
+          <button
+            className={`stats-nav-card pixel-panel ${showOnboarding ? 'tour-dashboard' : ''}`}
+            type="button"
+            onClick={goToStats}
+          >
+            <div className="panel-title stats-nav-title">
+              <span>4</span>
+              <div>
+                <h2>История, дела и лидерборд</h2>
+                <p className="hint">Турнирная таблица и статистика по текущему режиму</p>
+              </div>
+            </div>
+            <span aria-hidden className="stats-nav-arrow">
+              →
+            </span>
+          </button>
 
           <article className={`pixel-panel start-card ${showOnboarding ? 'tour-start' : ''}`}>
             <h2>Готовы к уборке?</h2>
             <div className="start-card-body">
               <p className={startHints.includes('chores') ? 'start-hint-error' : ''}>
-                Выбрано поддел: <strong>{selectedTasks.length}</strong>.{' '}
+                Выбрано дел: <strong>{selectedTasks.length}</strong>.{' '}
                 {gameMode === 'childQuest'
                   ? `Цель ребёнка: ${recommendedScore} монет.`
                   : gameMode === 'solo'
@@ -1882,38 +1920,46 @@ function ChoreLibrary({
           </button>
         </div>
       )}
-      <div className="add-chore">
-        <input
-          placeholder="Одиночное дело"
-          value={newChore.title}
-          onChange={(event) => onNewChore({ ...newChore, title: event.target.value })}
-        />
-        <input
-          aria-label="Минуты"
-          min={5}
-          step={5}
-          type="number"
-          value={newChore.minutes}
-          onChange={(event) => onNewChore({ ...newChore, minutes: Number(event.target.value) })}
-        />
-        <select value={newChore.difficulty} onChange={(event) => onNewChore({ ...newChore, difficulty: event.target.value as Difficulty })}>
-          <option value="easy">легко</option>
-          <option value="normal">обычно</option>
-          <option value="hard">сложно</option>
-        </select>
-        <button className="pixel-button" type="button" onClick={onAddChore}>
-          Добавить дело
-        </button>
-      </div>
-      <div className="add-category">
-        <input
-          placeholder="Категория, например: ванная комната"
-          value={newCategoryTitle}
-          onChange={(event) => onNewCategoryTitle(event.target.value)}
-        />
-        <button className="pixel-button alt" type="button" onClick={onAddCategory}>
-          Добавить категорию
-        </button>
+      <div className="chore-compose">
+        <div className="chore-compose-row">
+          <input
+            className="compose-title"
+            placeholder="Дело"
+            value={newChore.title}
+            onChange={(event) => onNewChore({ ...newChore, title: event.target.value })}
+          />
+          <input
+            aria-label="Минуты"
+            className="compose-minutes"
+            min={5}
+            step={5}
+            type="number"
+            value={newChore.minutes}
+            onChange={(event) => onNewChore({ ...newChore, minutes: Number(event.target.value) })}
+          />
+          <select
+            className="compose-diff"
+            value={newChore.difficulty}
+            onChange={(event) => onNewChore({ ...newChore, difficulty: event.target.value as Difficulty })}
+          >
+            <option value="easy">легко</option>
+            <option value="normal">обычно</option>
+            <option value="hard">сложно</option>
+          </select>
+          <button className="tiny-button compose-add" title="Добавить дело" type="button" onClick={onAddChore}>
+            +
+          </button>
+        </div>
+        <div className="chore-compose-row chore-compose-category">
+          <input
+            placeholder="Категория"
+            value={newCategoryTitle}
+            onChange={(event) => onNewCategoryTitle(event.target.value)}
+          />
+          <button className="tiny-button alt compose-add-category" title="Добавить категорию" type="button" onClick={onAddCategory}>
+            + кат
+          </button>
+        </div>
       </div>
       <div className="chore-list">
         {chores.map((item) =>
@@ -2290,67 +2336,142 @@ function ProfileEditor({
   )
 }
 
-function Dashboard({
+const modeLabels: Record<GameMode, string> = {
+  solo: 'Одиночный',
+  duo: 'Парный',
+  childQuest: 'Квест для ребёнка',
+}
+
+function StatsPage({
   gameMode,
-  history,
+  pairGames,
   leaderboard,
+  onBack,
   onDeleteGame,
   players,
-  showOnboarding = false,
-  stats,
 }: {
   gameMode: GameMode
-  history: GameRecord[]
+  pairGames: GameRecord[]
   leaderboard: ModeLeaderboards
+  onBack: () => void
   onDeleteGame: (gameId: string) => void
   players: Player[]
-  showOnboarding?: boolean
-  stats: ChoreStat[]
 }) {
-  const modeLabels: Record<GameMode, string> = {
-    solo: 'Одиночный',
-    duo: 'Парный',
-    childQuest: 'Квест для ребёнка',
-  }
+  const [statsTab, setStatsTab] = useState<'tournament' | 'analytics'>('tournament')
+  const [statsMode, setStatsMode] = useState<GameMode>(gameMode)
+
+  useEffect(() => {
+    setStatsMode(gameMode)
+  }, [gameMode])
+
+  const modeHistory = useMemo(
+    () => pairGames.filter((game) => (game.mode || 'duo') === statsMode),
+    [pairGames, statsMode],
+  )
+  const modeStats = useMemo(() => computeChoreStats(modeHistory, players), [modeHistory, players])
+  const modeBoard = leaderboard[statsMode]
 
   return (
-    <article className={`pixel-panel dashboard-panel ${showOnboarding ? 'tour-dashboard' : ''}`}>
-      <div className="panel-title">
-        <span>4</span>
-        <h2>История, дела и лидерборд</h2>
+    <article className="pixel-panel stats-page">
+      <div className="stats-page-top">
+        <button className="tiny-button stats-back-button" type="button" onClick={onBack}>
+          ← На главную
+        </button>
+        <div className="panel-title stats-page-title">
+          <span>4</span>
+          <h2>История, дела и лидерборд</h2>
+        </div>
       </div>
-      <div className="dashboard-grid three">
-        <section>
-          <h3>История ({modeLabels[gameMode]})</h3>
-          <div className="history-list">
-            {history.slice(0, 8).map((game) => (
-              <div className="history-row history-row-actions" key={game.id}>
-                <div className="history-row-body">
-                  <strong>
-                    {game.mode === 'childQuest'
-                      ? game.players[0]?.name || 'Квест'
-                      : game.mode === 'solo'
-                        ? `${game.players[0]?.name || 'Соло'}: ${game.scores[0]?.total || 0} очков`
-                        : game.winnerEmail
-                          ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}`
-                          : 'Ничья'}
-                  </strong>
-                  <span>
-                    {formatDate(game.finishedAt)} · {game.scores.map((score) => score.total).join(' : ')}
-                  </span>
+
+      <div className="stats-page-tabs">
+        <button
+          className={statsTab === 'tournament' ? 'section-tab active' : 'section-tab'}
+          type="button"
+          onClick={() => setStatsTab('tournament')}
+        >
+          Турнирная таблица
+        </button>
+        <button
+          className={statsTab === 'analytics' ? 'section-tab active' : 'section-tab'}
+          type="button"
+          onClick={() => setStatsTab('analytics')}
+        >
+          Статистика
+        </button>
+      </div>
+
+      <div className="stats-mode-picker">
+        {(['solo', 'duo', 'childQuest'] as const).map((mode) => (
+          <button
+            className={statsMode === mode ? 'section-tab active' : 'section-tab'}
+            key={mode}
+            type="button"
+            onClick={() => setStatsMode(mode)}
+          >
+            {modeLabels[mode]}
+          </button>
+        ))}
+      </div>
+
+      {statsTab === 'tournament' && (
+        <div className="stats-tournament-layout">
+          <section className="stats-section">
+            <h3>Турнирная таблица · {modeLabels[statsMode]}</h3>
+            <div className="history-list">
+              {modeBoard.map((entry, index) => (
+                <div className="history-row" key={`${statsMode}-${entry.pairKey}`}>
+                  <div className="history-row-body">
+                    <strong>
+                      #{index + 1}{' '}
+                      {statsMode === 'solo' || statsMode === 'childQuest'
+                        ? entry.players[0]?.name || 'Игрок'
+                        : entry.players.map((player) => player.name).join(' + ')}
+                    </strong>
+                    <span>
+                      {entry.games} игр · {entry.totalScore} очков · {entry.totalChores} дел
+                    </span>
+                  </div>
                 </div>
-                <button className="tiny-button danger" type="button" onClick={() => onDeleteGame(game.id)}>
-                  Удалить
-                </button>
-              </div>
-            ))}
-            {!history.length && <p className="hint">Сохранённых игр в этом режиме пока нет.</p>}
-          </div>
-        </section>
-        <section>
-          <h3>Кто что делает чаще</h3>
+              ))}
+              {!modeBoard.length && <p className="hint">В этом режиме пока никого нет в таблице.</p>}
+            </div>
+          </section>
+
+          <section className="stats-section">
+            <h3>История · {modeLabels[statsMode]}</h3>
+            <div className="history-list">
+              {modeHistory.map((game) => (
+                <div className="history-row history-row-actions" key={game.id}>
+                  <div className="history-row-body">
+                    <strong>
+                      {game.mode === 'childQuest'
+                        ? game.players[0]?.name || 'Квест'
+                        : game.mode === 'solo'
+                          ? `${game.players[0]?.name || 'Соло'}: ${game.scores[0]?.total || 0} очков`
+                          : game.winnerEmail
+                            ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}`
+                            : 'Ничья'}
+                    </strong>
+                    <span>
+                      {formatDate(game.finishedAt)} · {game.scores.map((score) => score.total).join(' : ')}
+                    </span>
+                  </div>
+                  <button className="tiny-button danger" type="button" onClick={() => onDeleteGame(game.id)}>
+                    Удалить
+                  </button>
+                </div>
+              ))}
+              {!modeHistory.length && <p className="hint">Сохранённых игр в этом режиме пока нет.</p>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {statsTab === 'analytics' && (
+        <section className="stats-section">
+          <h3>Кто что делает чаще · {modeLabels[statsMode]}</h3>
           <div className="history-list">
-            {stats.slice(0, 8).map((stat) => (
+            {modeStats.map((stat) => (
               <div className="history-row" key={stat.title}>
                 <div className="history-row-body">
                   <strong>{stat.title}</strong>
@@ -2361,36 +2482,10 @@ function Dashboard({
                 </div>
               </div>
             ))}
-            {!stats.length && <p className="hint">Статистика дел появится после сохранённых игр.</p>}
+            {!modeStats.length && <p className="hint">Статистика дел появится после сохранённых игр.</p>}
           </div>
         </section>
-        <section>
-          <h3>Лидерборд</h3>
-          {(['solo', 'duo', 'childQuest'] as const).map((mode) => (
-            <div className="leaderboard-mode-block" key={mode}>
-              <h4>{modeLabels[mode]}</h4>
-              <div className="history-list">
-                {leaderboard[mode].slice(0, 4).map((entry, index) => (
-                  <div className="history-row history-row-actions" key={`${mode}-${entry.pairKey}`}>
-                    <div className="history-row-body">
-                      <strong>
-                        #{index + 1}{' '}
-                        {mode === 'solo' || mode === 'childQuest'
-                          ? entry.players[0]?.name || 'Игрок'
-                          : entry.players.map((player) => player.name).join(' + ')}
-                      </strong>
-                      <span>
-                        {entry.games} игр · {entry.totalScore} очков · {entry.totalChores} дел
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                {!leaderboard[mode].length && <p className="hint">Пока пусто.</p>}
-              </div>
-            </div>
-          ))}
-        </section>
-      </div>
+      )}
     </article>
   )
 }
