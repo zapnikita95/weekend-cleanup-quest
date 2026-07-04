@@ -180,6 +180,24 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   return payload
 }
 
+const readLocalJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const saved = window.localStorage.getItem(key)
+    return saved ? (JSON.parse(saved) as T) : fallback
+  } catch {
+    window.localStorage.removeItem(key)
+    return fallback
+  }
+}
+
+const writeLocalJson = (key: string, value: unknown) => {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Storage can be blocked or full on some browsers; the game still works for the current session.
+  }
+}
+
 const normalizeStoredChores = (items: unknown): ChoreItem[] => {
   if (!Array.isArray(items)) return defaultChores
   return items.map((item: any) => {
@@ -251,10 +269,16 @@ const computeChoreStats = (games: GameRecord[], players: [Player, Player]): Chor
 
 function App() {
   const [players, setPlayers] = useState<[Player, Player]>(() => {
-    const saved = window.localStorage.getItem('wcq-players')
-    return saved ? JSON.parse(saved) : defaultPlayers
+    const saved = readLocalJson<unknown>('wcq-players', defaultPlayers)
+    if (!Array.isArray(saved) || saved.length !== 2) return defaultPlayers
+    return saved.map((player: any, index) => ({
+      email: String(player?.email || defaultPlayers[index as 0 | 1].email),
+      name: String(player?.name || defaultPlayers[index as 0 | 1].name),
+      avatar: String(player?.avatar || defaultPlayers[index as 0 | 1].avatar),
+      avatarUrl: player?.avatarUrl ? String(player.avatarUrl) : '',
+    })) as [Player, Player]
   })
-  const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(JSON.parse(window.localStorage.getItem('wcq-chores') || 'null')))
+  const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(readLocalJson<unknown>('wcq-chores', null)))
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
   const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
   const [newChore, setNewChore] = useState({ title: '', minutes: 15, difficulty: 'normal' as Difficulty })
@@ -282,11 +306,11 @@ function App() {
   }, [loadState])
 
   useEffect(() => {
-    window.localStorage.setItem('wcq-players', JSON.stringify(players))
+    writeLocalJson('wcq-players', players)
   }, [players])
 
   useEffect(() => {
-    window.localStorage.setItem('wcq-chores', JSON.stringify(chores))
+    writeLocalJson('wcq-chores', chores)
   }, [chores])
 
   useEffect(() => {
