@@ -116,8 +116,8 @@ const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard',
 const roomIconOptions = ['bath', 'kitchen', 'living', 'bedroom', 'toilet', 'hall', 'wardrobe', 'storage', 'garden', 'outside', 'dining', 'garage']
 
 const defaultPlayers: [Player, Player] = [
-  { email: 'nikita@example.com', name: 'Никита', avatar: 'fox' },
-  { email: 'love@example.com', name: 'Любимая', avatar: 'cat' },
+  { email: 'you@example.com', name: 'Вы', avatar: 'fox' },
+  { email: 'partner@example.com', name: 'Партнёр', avatar: 'cat' },
 ]
 
 const task = (id: string, title: string, minutes: number, difficulty: Difficulty = 'normal'): ChoreTask => ({
@@ -621,6 +621,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setStatus('Введите общую почту пары перед стартом уборки.')
       return
     }
+    if (!prize.trim()) {
+      setStatus('Укажите приз или награду перед стартом уборки.')
+      return
+    }
 
     const totals = [0, 0]
     const nextAssigned: AssignedChore[] = []
@@ -943,14 +947,6 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               <button className={gameMode === 'solo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('solo')}>
                 Одиночный режим
               </button>
-              <label>
-                Приз / награда
-                <input
-                  placeholder={gameMode === 'solo' ? 'Например: купить себе вкусняшку' : 'Например: победителю массаж / ужин'}
-                  value={prize}
-                  onChange={(event) => setPrize(event.target.value)}
-                />
-              </label>
               {gameMode === 'solo' && (
                 <label>
                   Цель по очкам
@@ -1036,7 +1032,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                 onChange={(event) => setRoundMinutes(Number(event.target.value))}
               />
             </label>
-            <p className="hint">Категория пытается уйти одному игроку целиком, но если не влезает по времени — дробится.</p>
+            <p className="hint">Время нужно только для ориентира и распределения. Игра завершается только когда вы сами переходите к оценкам.</p>
           </article>
 
           <ChoreLibrary
@@ -1056,10 +1052,20 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
           <article className="pixel-panel start-card">
             <h2>Готовы к уборке?</h2>
-            <p>
-              Выбрано поддел: <strong>{selectedTasks.length}</strong>. {gameMode === 'solo' ? `Цель: ${targetScore} очков.` : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
-            </p>
-            <button className="pixel-button start" disabled={!selectedTasks.length} type="button" onClick={startRound}>
+            <div className="start-card-body">
+              <p>
+                Выбрано поддел: <strong>{selectedTasks.length}</strong>. {gameMode === 'solo' ? `Цель: ${targetScore} очков.` : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
+              </p>
+              <label>
+                Приз / награда
+                <input
+                  placeholder={gameMode === 'solo' ? 'Например: купить себе вкусняшку' : 'Например: победителю массаж / ужин'}
+                  value={prize}
+                  onChange={(event) => setPrize(event.target.value)}
+                />
+              </label>
+            </div>
+            <button className="pixel-button start" disabled={!selectedTasks.length || !prize.trim()} type="button" onClick={startRound}>
               Сгенерировать уборку
             </button>
           </article>
@@ -1722,6 +1728,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
   const [game, setGame] = useState<ActiveGame | null>(null)
   const [status, setStatus] = useState('Загружаю игру...')
   const [reviews, setReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
+  const [mobileExtra, setMobileExtra] = useState({ title: '', difficulty: 'normal' as Difficulty, rating: 2 })
 
   const loadGame = useCallback(async () => {
     try {
@@ -1763,6 +1770,31 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
       setStatus('Дополнительное дело подтверждено')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось подтвердить дело')
+    }
+  }
+
+  const addMobileExtra = async () => {
+    const title = mobileExtra.title.trim()
+    if (!title) {
+      setStatus('Напиши название дополнительного дела')
+      return
+    }
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/add-extra`, {
+        body: JSON.stringify({
+          assignedTo: playerIndex,
+          difficulty: mobileExtra.difficulty,
+          minutes: 10,
+          partnerRating: mobileExtra.rating,
+          title,
+        }),
+        method: 'POST',
+      })
+      setGame(result.game)
+      setMobileExtra({ title: '', difficulty: 'normal', rating: 2 })
+      setStatus(result.game.mode === 'solo' ? 'Дополнительное дело добавлено' : 'Дело отправлено партнёру на подтверждение')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось добавить дело')
     }
   }
 
@@ -1858,6 +1890,39 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
             })}
           </div>
         )}
+
+        <div className="mobile-extra-form">
+          <h2>Добавить дело</h2>
+          <input
+            placeholder="Что ещё сделал?"
+            value={mobileExtra.title}
+            onChange={(event) => setMobileExtra((current) => ({ ...current, title: event.target.value }))}
+          />
+          {game.mode === 'solo' && (
+            <div className="mobile-extra-controls">
+              <select
+                value={mobileExtra.difficulty}
+                onChange={(event) => setMobileExtra((current) => ({ ...current, difficulty: event.target.value as Difficulty }))}
+              >
+                <option value="easy">легко</option>
+                <option value="normal">обычно</option>
+                <option value="hard">сложно</option>
+              </select>
+              <select
+                value={mobileExtra.rating}
+                onChange={(event) => setMobileExtra((current) => ({ ...current, rating: Number(event.target.value) }))}
+              >
+                <option value={0}>0 баллов</option>
+                <option value={1}>1 балл</option>
+                <option value={2}>2 балла</option>
+                <option value={3}>3 балла</option>
+              </select>
+            </div>
+          )}
+          <button className="pixel-button alt wide" type="button" onClick={addMobileExtra}>
+            Добавить дело
+          </button>
+        </div>
 
         <button className="pixel-button start mobile-done" disabled={!next} type="button" onClick={() => complete()}>
           Сделано!

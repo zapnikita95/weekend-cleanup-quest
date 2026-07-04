@@ -435,6 +435,16 @@ label {
   margin-bottom: 0;
 }
 
+.start-card-body {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 14px;
+}
+
+.start-card-body label {
+  max-width: 640px;
+}
+
 .play-screen,
 .results-screen {
   display: grid;
@@ -1126,6 +1136,21 @@ label {
   position: sticky;
   top: 8px;
   z-index: 3;
+}
+
+.mobile-extra-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  border: 3px solid var(--ink);
+  background: rgba(102, 227, 255, 0.16);
+  padding: 12px;
+}
+
+.mobile-extra-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 @media (max-width: 860px) {
