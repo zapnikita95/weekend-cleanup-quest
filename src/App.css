@@ -392,6 +392,41 @@ label {
   margin-top: 16px;
 }
 
+.qr-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-top: 14px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 10px;
+}
+
+.qr-card img {
+  width: 112px;
+  height: 112px;
+  border: 3px solid var(--ink);
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.qr-card strong,
+.qr-card span {
+  display: block;
+}
+
+.qr-card strong {
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.qr-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .quest {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -945,6 +980,33 @@ label {
   background: rgba(255, 255, 255, 0.32);
 }
 
+.mobile-shell {
+  width: min(760px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 18px 0 36px;
+}
+
+.mobile-panel {
+  padding: 18px;
+}
+
+.mobile-panel h1 {
+  font-size: clamp(30px, 11vw, 58px);
+  line-height: 1;
+}
+
+.mobile-quests .quest {
+  min-height: 76px;
+  font-size: 18px;
+}
+
+.mobile-done {
+  width: 100%;
+  margin-top: 18px;
+  padding: 18px;
+  font-size: clamp(24px, 8vw, 44px);
+}
+
 @media (max-width: 860px) {
   .topbar,
   .start-card {
@@ -975,5 +1037,15 @@ label {
 
   .quest small {
     justify-self: start;
+  }
+
+  .qr-card {
+    grid-template-columns: 1fr;
+  }
+
+  .qr-card img {
+    width: 160px;
+    height: 160px;
+    justify-self: center;
   }
 }

@@ -22,6 +22,7 @@ const contentTypes = {
 }
 
 const defaultDb = {
+  activeGames: {},
   profiles: {},
   games: [],
 }
@@ -53,6 +54,7 @@ const readDb = () => {
   try {
     const parsed = JSON.parse(readFileSync(dbPath, 'utf8'))
     return {
+      activeGames: parsed.activeGames && typeof parsed.activeGames === 'object' ? parsed.activeGames : {},
       profiles: parsed.profiles && typeof parsed.profiles === 'object' ? parsed.profiles : {},
       games: Array.isArray(parsed.games) ? parsed.games : [],
     }
@@ -81,6 +83,14 @@ const getPairKey = (players) =>
     .join('|')
 
 const hydrateGame = (game, profiles) => ({
+  ...game,
+  players: game.players.map((player) => ({
+    ...player,
+    profile: profiles[normalizeEmail(player.email)] || null,
+  })),
+})
+
+const hydrateActiveGame = (game, profiles) => ({
   ...game,
   players: game.players.map((player) => ({
     ...player,
@@ -131,6 +141,91 @@ const buildState = () => {
   })
 
   return { profiles, games, leaderboard }
+}
+
+const getActiveGame = (requestUrl) => {
+  const match = requestUrl.pathname.match(/^\/api\/active-games\/([^/]+)(?:\/(.+))?$/)
+  if (!match) return null
+  return { id: decodeURIComponent(match[1]), action: match[2] || '' }
+}
+
+const createActiveGame = async (request, response) => {
+  const body = await readJsonBody(request)
+  const players = Array.isArray(body.players)
+    ? body.players.map((player) => ({
+        email: normalizeEmail(player.email),
+        name: String(player.name || '').trim(),
+        avatar: String(player.avatar || 'fox'),
+        avatarUrl: String(player.avatarUrl || ''),
+      }))
+    : []
+  const chores = Array.isArray(body.chores) ? body.chores : []
+
+  if (players.length !== 2 || players.some((player) => !player.email || !player.email.includes('@'))) {
+    sendError(response, 400, 'Для активной игры нужны два игрока с почтой.')
+    return
+  }
+
+  const db = readDb()
+  const existingId = String(body.id || '')
+  const id = existingId && db.activeGames[existingId] ? existingId : makeId()
+  const previous = db.activeGames[id] || {}
+  const activeGame = {
+    id,
+    pairKey: getPairKey(players),
+    players,
+    chores,
+    roundMinutes: Number(body.roundMinutes || previous.roundMinutes || 0),
+    startedAt: previous.startedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+
+  db.activeGames[id] = activeGame
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(activeGame, db.profiles) })
+}
+
+const completeActiveChore = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+
+  const playerIndex = Number(body.playerIndex)
+  if (playerIndex !== 0 && playerIndex !== 1) {
+    sendError(response, 400, 'Нужен номер игрока.')
+    return
+  }
+
+  const choreId = body.choreId ? String(body.choreId) : ''
+  const target = choreId
+    ? game.chores.find((chore) => chore.id === choreId && chore.assignedTo === playerIndex)
+    : game.chores.find((chore) => chore.assignedTo === playerIndex && !chore.completed)
+
+  if (!target) {
+    sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+    return
+  }
+
+  const completed = game.chores
+    .filter((chore) => chore.assignedTo === playerIndex && chore.completed && chore.completedAt)
+    .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+  const lastDoneAt = completed[0]?.completedAt || game.startedAt || new Date().toISOString()
+  const completedAt = new Date().toISOString()
+  const actualMinutes = Math.max(1, Math.round((new Date(completedAt).getTime() - new Date(lastDoneAt).getTime()) / 60000))
+
+  game.chores = game.chores.map((chore) =>
+    chore.id === target.id && chore.assignedTo === playerIndex
+      ? { ...chore, completed: true, completedAt: Date.now(), actualMinutes }
+      : chore,
+  )
+  game.updatedAt = completedAt
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
 }
 
 const upsertProfile = async (request, response) => {
@@ -289,6 +384,25 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && url.pathname === '/api/state') {
       sendJson(response, 200, buildState())
+      return
+    }
+    if (request.method === 'POST' && url.pathname === '/api/active-games') {
+      await createActiveGame(request, response)
+      return
+    }
+    const activeRoute = getActiveGame(url)
+    if (activeRoute && request.method === 'GET' && !activeRoute.action) {
+      const db = readDb()
+      const game = db.activeGames[activeRoute.id]
+      if (!game) {
+        sendError(response, 404, 'Активная игра не найдена.')
+        return
+      }
+      sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'complete') {
+      await completeActiveChore(activeRoute.id, request, response)
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/profiles') {

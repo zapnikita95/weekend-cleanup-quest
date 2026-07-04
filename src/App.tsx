@@ -1,3 +1,4 @@
+import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
@@ -83,6 +84,16 @@ type ApiState = {
   profiles: Profile[]
   games: GameRecord[]
   leaderboard: PairLeaderboard[]
+}
+
+type ActiveGame = {
+  id: string
+  pairKey: string
+  players: Player[]
+  chores: AssignedChore[]
+  roundMinutes: number
+  startedAt: string
+  updatedAt: string
 }
 
 type ChoreStat = {
@@ -272,6 +283,14 @@ const computeChoreStats = (games: GameRecord[], players: [Player, Player]): Chor
 }
 
 function App() {
+  const mobileRoute = window.location.pathname.match(/^\/player\/([^/]+)\/([01])\/?$/)
+  if (mobileRoute) {
+    return <MobilePlayerPage playerIndex={Number(mobileRoute[2]) as 0 | 1} sessionId={decodeURIComponent(mobileRoute[1])} />
+  }
+  return <GameApp />
+}
+
+function GameApp() {
   const [players, setPlayers] = useState<[Player, Player]>(() => {
     const saved = readLocalJson<unknown>('wcq-players', defaultPlayers)
     if (!Array.isArray(saved) || saved.length !== 2) return defaultPlayers
@@ -295,6 +314,8 @@ function App() {
   const [now, setNow] = useState(Date.now())
   const [musicOn, setMusicOn] = useState(false)
   const [savedGameId, setSavedGameId] = useState('')
+  const [activeGameId, setActiveGameId] = useState('')
+  const [qrCodes, setQrCodes] = useState<[string, string]>(['', ''])
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
 
@@ -326,6 +347,36 @@ function App() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    if (!activeGameId) {
+      setQrCodes(['', ''])
+      return
+    }
+
+    const makeCodes = async () => {
+      const base = window.location.origin
+      const urls = [0, 1].map((playerIndex) => `${base}/player/${activeGameId}/${playerIndex}`)
+      const codes = await Promise.all(urls.map((url) => QRCode.toDataURL(url, { margin: 1, width: 220 })))
+      setQrCodes(codes as [string, string])
+    }
+
+    makeCodes().catch(() => setQrCodes(['', '']))
+  }, [activeGameId])
+
+  useEffect(() => {
+    if (!activeGameId || phase === 'setup') return
+    const sync = async () => {
+      try {
+        const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}`)
+        setAssigned(result.game.chores)
+      } catch {
+        // The main screen remains usable even if a phone briefly loses sync.
+      }
+    }
+    const timer = window.setInterval(sync, 1500)
+    return () => window.clearInterval(timer)
+  }, [activeGameId, phase])
 
   const selectedTasks = useMemo(() => chores.flatMap(getAssignableTasks), [chores])
   const elapsedSeconds = roundStartedAt ? Math.max(0, Math.floor((now - roundStartedAt) / 1000)) : 0
@@ -471,7 +522,7 @@ function App() {
     })
   }
 
-  const startRound = () => {
+  const startRound = async () => {
     if (!normalizeEmail(pairEmail).includes('@')) {
       setStatus('Введите общую почту пары перед стартом уборки.')
       return
@@ -517,13 +568,43 @@ function App() {
     setAssigned(nextAssigned)
     setRoundStartedAt(Date.now())
     setPhase('play')
+    try {
+      const result = await api<{ game: ActiveGame }>('/api/active-games', {
+        body: JSON.stringify({
+          chores: nextAssigned,
+          players: gamePlayers.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
+          roundMinutes,
+        }),
+        method: 'POST',
+      })
+      setActiveGameId(result.game.id)
+      setAssigned(result.game.chores)
+      setStatus('QR-коды готовы: можно отмечать дела с телефонов.')
+    } catch (error) {
+      setActiveGameId('')
+      setStatus(error instanceof Error ? `Игра стартовала, но QR не создался: ${error.message}` : 'Игра стартовала, но QR не создался.')
+    }
   }
 
   const completeNextFor = useCallback(
-    (playerIndex: 0 | 1) => {
+    async (playerIndex: 0 | 1, choreId?: string) => {
       if (phase !== 'play') return
+      if (activeGameId) {
+        try {
+          const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}/complete`, {
+            body: JSON.stringify({ choreId, playerIndex }),
+            method: 'POST',
+          })
+          setAssigned(result.game.chores)
+          return
+        } catch {
+          // Fall back to local marking so the main screen still works offline.
+        }
+      }
       setAssigned((current) => {
-        const target = current.find((chore) => chore.assignedTo === playerIndex && !chore.completed)
+        const target = choreId
+          ? current.find((chore) => chore.id === choreId && chore.assignedTo === playerIndex)
+          : current.find((chore) => chore.assignedTo === playerIndex && !chore.completed)
         if (!target) return current
         const lastDoneAt =
           current
@@ -539,7 +620,7 @@ function App() {
         )
       })
     },
-    [phase, roundStartedAt],
+    [activeGameId, phase, roundStartedAt],
   )
 
   useEffect(() => {
@@ -791,6 +872,15 @@ function App() {
                   >
                     {playerIndex === 0 ? 'Space' : 'Enter'}: отметить следующее
                   </button>
+                  {qrCodes[playerIndex] && (
+                    <div className="qr-card">
+                      <img alt={`QR для ${players[playerIndex as 0 | 1].name}`} src={qrCodes[playerIndex]} />
+                      <div>
+                        <strong>Сканируй телефоном</strong>
+                        <span>Откроются только дела {players[playerIndex as 0 | 1].name}</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="quest-list">
                     {plan.map((chore) => (
                       <button
@@ -799,13 +889,7 @@ function App() {
                         type="button"
                         onClick={() => {
                           if (!chore.completed) {
-                            setAssigned((current) =>
-                              current.map((item) =>
-                                item.id === chore.id && item.assignedTo === chore.assignedTo
-                                  ? { ...item, completed: true, completedAt: Date.now(), actualMinutes: chore.minutes }
-                                  : item,
-                              ),
-                            )
+                            completeNextFor(playerIndex as 0 | 1, chore.id)
                           }
                         }}
                       >
@@ -1235,6 +1319,96 @@ function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; ava
       <span className="badge" />
       <span className="spark" />
     </div>
+  )
+}
+
+function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sessionId: string }) {
+  const [game, setGame] = useState<ActiveGame | null>(null)
+  const [status, setStatus] = useState('Загружаю игру...')
+
+  const loadGame = useCallback(async () => {
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}`)
+      setGame(result.game)
+      setStatus('Синхронизация включена')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось загрузить игру')
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    loadGame()
+    const timer = window.setInterval(loadGame, 1500)
+    return () => window.clearInterval(timer)
+  }, [loadGame])
+
+  const complete = async (choreId?: string) => {
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/complete`, {
+        body: JSON.stringify({ choreId, playerIndex }),
+        method: 'POST',
+      })
+      setGame(result.game)
+      setStatus('Готово, общий экран обновился')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось отметить дело')
+    }
+  }
+
+  if (!game) {
+    return (
+      <main className="mobile-shell">
+        <section className="pixel-panel mobile-panel">
+          <p className="eyebrow">Weekend Cleanup Quest</p>
+          <h1>Мои дела</h1>
+          <p>{status}</p>
+        </section>
+      </main>
+    )
+  }
+
+  const player = game.players[playerIndex]
+  const chores = game.chores.filter((chore) => chore.assignedTo === playerIndex)
+  const done = chores.filter((chore) => chore.completed).length
+  const next = chores.find((chore) => !chore.completed)
+
+  return (
+    <main className="mobile-shell">
+      <section className="pixel-panel mobile-panel">
+        <div className="player-card">
+          <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
+          <div>
+            <p className="eyebrow">Моя уборка</p>
+            <h1>{player.name}</h1>
+            <p>
+              {done}/{chores.length} дел · {status}
+            </p>
+          </div>
+        </div>
+
+        <div className="quest-list mobile-quests">
+          {chores.map((chore) => (
+            <button
+              className={chore.completed ? 'quest done' : 'quest'}
+              disabled={chore.completed}
+              key={`${chore.id}-${chore.assignedTo}`}
+              type="button"
+              onClick={() => complete(chore.id)}
+            >
+              <span>{chore.completed ? '✓' : '□'}</span>
+              <strong>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</strong>
+              <small>
+                {chore.minutes} мин · {difficultyLabel[chore.difficulty]}
+              </small>
+            </button>
+          ))}
+        </div>
+
+        <button className="pixel-button start mobile-done" disabled={!next} type="button" onClick={() => complete()}>
+          Сделано!
+        </button>
+      </section>
+    </main>
   )
 }
 
