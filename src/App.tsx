@@ -139,7 +139,22 @@ type ChoreStat = {
 }
 
 const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
+const spriteAvatarSet = new Set(avatarOptions)
 const roomIconOptions = ['bath', 'kitchen', 'living', 'bedroom', 'toilet', 'hall', 'wardrobe', 'storage', 'garden', 'outside', 'dining', 'garage']
+const roomIconLabels: Record<string, string> = {
+  bath: 'Ванная',
+  kitchen: 'Кухня',
+  living: 'Гостиная',
+  bedroom: 'Спальня',
+  toilet: 'Туалет',
+  hall: 'Прихожая',
+  wardrobe: 'Гардероб',
+  storage: 'Кладовка',
+  garden: 'Сад / двор',
+  outside: 'На улице',
+  dining: 'Столовая',
+  garage: 'Гараж',
+}
 const defaultSections = ['Дела по дому', 'Уход за собой']
 const PUBLIC_SITE = 'https://www.tidytitans.ru'
 
@@ -1820,32 +1835,53 @@ function ChoreLibrary({
   onUpdateItem: (id: string, patch: Partial<ChoreTask | ChoreGroup>, childId?: string) => void
   sections: string[]
 }) {
+  const [addingSection, setAddingSection] = useState(false)
+
   return (
     <article className={className ? `pixel-panel chores-panel ${className}` : 'pixel-panel chores-panel'}>
-      <div className="panel-title">
+      <div className="panel-title panel-title-with-tabs">
         <span>3</span>
         <h2>Общий список дел</h2>
+        <div className="section-tabs">
+          {sections.map((section) => (
+            <button
+              className={currentSection === section ? 'section-tab active' : 'section-tab'}
+              key={section}
+              type="button"
+              onClick={() => onSectionChange(section)}
+            >
+              {section}
+            </button>
+          ))}
+          <button
+            aria-label="Добавить раздел"
+            className="section-tab add"
+            type="button"
+            onClick={() => setAddingSection((current) => !current)}
+          >
+            +
+          </button>
+        </div>
       </div>
-      <div className="section-switcher">
-        <label>
-          Раздел
-          <select value={currentSection} onChange={(event) => onSectionChange(event.target.value)}>
-            {sections.map((section) => (
-              <option key={section} value={section}>
-                {section}
-              </option>
-            ))}
-          </select>
-        </label>
-        <input
-          placeholder="Новый раздел, например: уход за собой"
-          value={newSectionTitle}
-          onChange={(event) => onNewSectionTitle(event.target.value)}
-        />
-        <button className="pixel-button alt" type="button" onClick={onAddSection}>
-          Добавить раздел
-        </button>
-      </div>
+      {addingSection && (
+        <div className="section-add-inline">
+          <input
+            placeholder="Название раздела, например: уход за собой"
+            value={newSectionTitle}
+            onChange={(event) => onNewSectionTitle(event.target.value)}
+          />
+          <button
+            className="pixel-button alt"
+            type="button"
+            onClick={() => {
+              onAddSection()
+              setAddingSection(false)
+            }}
+          >
+            Сохранить раздел
+          </button>
+        </div>
+      )}
       <div className="add-chore">
         <input
           placeholder="Одиночное дело"
@@ -1885,11 +1921,10 @@ function ChoreLibrary({
             <div className="chore-group" key={item.id}>
               <div className="chore-row group-row">
                 <input checked={item.enabled} type="checkbox" onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked })} />
-                <span className={`room-icon ${item.icon || 'storage'}`} />
-                <select value={item.icon || 'storage'} onChange={(event) => onUpdateItem(item.id, { icon: event.target.value })}>
+                <select className="room-icon-select" value={item.icon || 'storage'} onChange={(event) => onUpdateItem(item.id, { icon: event.target.value })}>
                   {roomIconOptions.map((icon) => (
                     <option key={icon} value={icon}>
-                      {icon}
+                      {roomIconLabels[icon]}
                     </option>
                   ))}
                 </select>
@@ -2267,7 +2302,7 @@ function Dashboard({
           <div className="history-list">
             {history.slice(0, 8).map((game) => (
               <div className="history-row history-row-actions" key={game.id}>
-                <div>
+                <div className="history-row-body">
                   <strong>
                     {game.mode === 'childQuest'
                       ? game.players[0]?.name || 'Квест'
@@ -2294,11 +2329,13 @@ function Dashboard({
           <div className="history-list">
             {stats.slice(0, 8).map((stat) => (
               <div className="history-row" key={stat.title}>
-                <strong>{stat.title}</strong>
-                <span>
-                  {players.map((player) => `${player.name}: ${stat.byPlayer[normalizeEmail(player.email)] || 0}`).join(' · ')} ·
-                  среднее {stat.avgMinutes} мин
-                </span>
+                <div className="history-row-body">
+                  <strong>{stat.title}</strong>
+                  <span>
+                    {players.map((player) => `${player.name}: ${stat.byPlayer[normalizeEmail(player.email)] || 0}`).join(' · ')} ·
+                    среднее {stat.avgMinutes} мин
+                  </span>
+                </div>
               </div>
             ))}
             {!stats.length && <p className="hint">Статистика дел появится после сохранённых игр.</p>}
@@ -2312,7 +2349,7 @@ function Dashboard({
               <div className="history-list">
                 {leaderboard[mode].slice(0, 4).map((entry, index) => (
                   <div className="history-row history-row-actions" key={`${mode}-${entry.pairKey}`}>
-                    <div>
+                    <div className="history-row-body">
                       <strong>
                         #{index + 1}{' '}
                         {mode === 'solo' || mode === 'childQuest'
@@ -2430,6 +2467,19 @@ function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; ava
     )
   }
 
+  if (spriteAvatarSet.has(avatar)) {
+    return (
+      <div className={small ? 'sprite-avatar small' : 'sprite-avatar'} aria-hidden="true">
+        <img alt="" src={`/avatars/${avatar}.svg`} />
+      </div>
+    )
+  }
+
+  return <LegacyPixelAvatar avatar={avatar} small={small} />
+}
+
+/** CSS-only аватары (legacy). Оставлены как запасной вариант. */
+function LegacyPixelAvatar({ avatar, small = false }: { avatar: string; small?: boolean }) {
   return (
     <div className={small ? `pixel-avatar ${avatar} small` : `pixel-avatar ${avatar}`} aria-hidden="true">
       <span className="ear left" />
