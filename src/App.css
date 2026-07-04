@@ -30,14 +30,24 @@
   text-transform: uppercase;
 }
 
+.status-line {
+  max-width: 720px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 h1,
 h2,
+h3,
 p {
   margin-top: 0;
 }
 
 h1,
-h2 {
+h2,
+h3 {
   color: var(--ink);
   text-shadow: 2px 2px 0 var(--sun);
 }
@@ -51,6 +61,11 @@ h1 {
 h2 {
   margin-bottom: 12px;
   font-size: clamp(20px, 3vw, 30px);
+}
+
+h3 {
+  margin-bottom: 10px;
+  font-size: 18px;
 }
 
 button,
@@ -140,7 +155,12 @@ label {
 }
 
 .chores-panel,
+.dashboard-panel,
 .start-card {
+  grid-column: 1 / -1;
+}
+
+.profiles-panel {
   grid-column: 1 / -1;
 }
 
@@ -205,6 +225,24 @@ label {
 .hint {
   color: var(--muted);
   font-size: 14px;
+}
+
+.pair-stats {
+  display: grid;
+  gap: 8px;
+}
+
+.pair-stats strong {
+  color: var(--ink);
+  font-size: 28px;
+}
+
+.pair-stats p {
+  margin-bottom: 0;
+}
+
+.upload-label input {
+  background: #fff;
 }
 
 .add-chore {
@@ -343,6 +381,35 @@ label {
   background: linear-gradient(135deg, var(--sun), #fff4bd);
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.history-row {
+  display: grid;
+  gap: 3px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 250, 240, 0.72);
+  padding: 10px;
+}
+
+.history-row strong {
+  color: var(--ink);
+}
+
+.history-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .big-score {
   display: block;
   margin: 6px 0;
@@ -388,13 +455,15 @@ label {
 
 .pixel-avatar {
   --avatar-base: #ff8a3d;
+  --avatar-dark: rgba(0, 0, 0, 0.18);
   position: relative;
   width: 92px;
   height: 92px;
   flex: 0 0 auto;
   border: 4px solid var(--ink);
   background:
-    linear-gradient(90deg, transparent 0 20%, rgba(255, 255, 255, 0.2) 20% 40%, transparent 40%),
+    linear-gradient(90deg, transparent 0 18%, rgba(255, 255, 255, 0.25) 18% 38%, transparent 38%),
+    linear-gradient(180deg, transparent 0 64%, var(--avatar-dark) 64% 100%),
     var(--avatar-base);
   image-rendering: pixelated;
   box-shadow:
@@ -412,9 +481,12 @@ label {
 }
 
 .pixel-avatar .ear,
+.pixel-avatar .horn,
 .pixel-avatar .eye,
+.pixel-avatar .snout,
 .pixel-avatar .mouth,
-.pixel-avatar .badge {
+.pixel-avatar .badge,
+.pixel-avatar .spark {
   position: absolute;
   display: block;
 }
@@ -440,6 +512,32 @@ label {
 
 .pixel-avatar .ear.right {
   right: 10px;
+}
+
+.pixel-avatar .horn {
+  display: none;
+  top: -22px;
+  width: 12px;
+  height: 28px;
+  border: 3px solid var(--ink);
+  background: #fff4bd;
+}
+
+.pixel-avatar.small .horn {
+  top: -12px;
+  width: 8px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.pixel-avatar .horn.left {
+  left: 20px;
+  transform: rotate(-16deg);
+}
+
+.pixel-avatar .horn.right {
+  right: 20px;
+  transform: rotate(16deg);
 }
 
 .pixel-avatar .eye {
@@ -473,19 +571,36 @@ label {
   right: 12px;
 }
 
+.pixel-avatar .snout {
+  left: 29px;
+  bottom: 25px;
+  width: 34px;
+  height: 20px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.pixel-avatar.small .snout {
+  left: 15px;
+  bottom: 12px;
+  width: 17px;
+  height: 10px;
+  border-width: 2px;
+}
+
 .pixel-avatar .mouth {
-  left: 34px;
-  bottom: 22px;
-  width: 24px;
-  height: 8px;
+  left: 38px;
+  bottom: 28px;
+  width: 16px;
+  height: 6px;
   background: var(--ink);
 }
 
 .pixel-avatar.small .mouth {
-  left: 17px;
-  bottom: 11px;
-  width: 13px;
-  height: 5px;
+  left: 20px;
+  bottom: 15px;
+  width: 8px;
+  height: 4px;
 }
 
 .pixel-avatar .badge {
@@ -495,6 +610,45 @@ label {
   height: 12px;
   background: var(--sun);
   border: 2px solid var(--ink);
+}
+
+.pixel-avatar .spark {
+  left: 8px;
+  bottom: 8px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  box-shadow:
+    10px -10px 0 var(--aqua),
+    20px 0 0 var(--pink);
+}
+
+.pixel-avatar.small .spark {
+  display: none;
+}
+
+.custom-avatar {
+  width: 92px;
+  height: 92px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 4px solid var(--ink);
+  background: #fff;
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.custom-avatar.small {
+  width: 48px;
+  height: 48px;
+  border-width: 3px;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.custom-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
 }
 
 .pixel-avatar.cat {
@@ -511,6 +665,11 @@ label {
 
 .pixel-avatar.robot .ear {
   top: 14px;
+}
+
+.pixel-avatar.robot .snout {
+  border-radius: 0;
+  background: #d7f3ff;
 }
 
 .pixel-avatar.ghost {
@@ -546,6 +705,65 @@ label {
   background: #54d66f;
 }
 
+.pixel-avatar.dragon .horn,
+.pixel-avatar.alien .horn,
+.pixel-avatar.queen .horn {
+  display: block;
+}
+
+.pixel-avatar.ninja {
+  --avatar-base: #33334f;
+}
+
+.pixel-avatar.ninja .snout {
+  left: 14px;
+  width: 64px;
+  background: #fff4bd;
+}
+
+.pixel-avatar.ninja.small .snout {
+  left: 7px;
+  width: 34px;
+}
+
+.pixel-avatar.alien {
+  --avatar-base: #74ff66;
+}
+
+.pixel-avatar.alien .eye {
+  width: 18px;
+  height: 18px;
+  transform: rotate(45deg);
+}
+
+.pixel-avatar.alien.small .eye {
+  width: 9px;
+  height: 9px;
+}
+
+.pixel-avatar.queen {
+  --avatar-base: #ff8fd7;
+}
+
+.pixel-avatar.queen .horn {
+  top: -18px;
+  width: 18px;
+  background: var(--sun);
+}
+
+.pixel-avatar.slime {
+  --avatar-base: #6bffcc;
+}
+
+.pixel-avatar.slime .ear {
+  display: none;
+}
+
+.pixel-avatar.slime .snout {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.32);
+}
+
 @media (max-width: 860px) {
   .topbar,
   .start-card {
@@ -556,6 +774,7 @@ label {
   .setup-grid,
   .players-editor,
   .battlefield,
+  .dashboard-grid,
   .score-grid,
   .hud {
     grid-template-columns: 1fr;

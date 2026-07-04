@@ -5,8 +5,15 @@ type Difficulty = 'easy' | 'normal' | 'hard'
 type Phase = 'setup' | 'play' | 'results'
 
 type Player = {
+  email: string
   name: string
   avatar: string
+  avatarUrl?: string
+}
+
+type Profile = Player & {
+  createdAt: string
+  updatedAt: string
 }
 
 type Chore = {
@@ -30,11 +37,47 @@ type CompletedChore = AssignedChore & {
   completedAt: number
 }
 
-const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon']
+type PlayerScore = {
+  total: number
+  base: number
+  speed: number
+  partner: number
+  streak: number
+  count: number
+}
+
+type GameRecord = {
+  id: string
+  pairKey: string
+  players: (Player & { profile?: Profile | null })[]
+  winnerEmail: string
+  roundMinutes: number
+  elapsedSeconds: number
+  scores: (PlayerScore & { email: string })[]
+  finishedAt: string
+}
+
+type PairLeaderboard = {
+  pairKey: string
+  players: (Player & { profile?: Profile | null })[]
+  games: number
+  totalScore: number
+  totalChores: number
+  wins: Record<string, number>
+  lastPlayedAt: string
+}
+
+type ApiState = {
+  profiles: Profile[]
+  games: GameRecord[]
+  leaderboard: PairLeaderboard[]
+}
+
+const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
 
 const defaultPlayers: [Player, Player] = [
-  { name: 'Никита', avatar: 'fox' },
-  { name: 'Любимая', avatar: 'cat' },
+  { email: 'nikita@example.com', name: 'Никита', avatar: 'fox' },
+  { email: 'love@example.com', name: 'Любимая', avatar: 'cat' },
 ]
 
 const defaultChores: Chore[] = [
@@ -47,6 +90,8 @@ const defaultChores: Chore[] = [
   { id: 'trash', title: 'Мусор и пакеты', minutes: 10, difficulty: 'easy', enabled: true },
   { id: 'dust', title: 'Вытереть пыль', minutes: 20, difficulty: 'normal', enabled: true },
 ]
+
+const emptyState: ApiState = { profiles: [], games: [], leaderboard: [] }
 
 const difficultyLabel: Record<Difficulty, string> = {
   easy: 'легко',
@@ -61,6 +106,8 @@ const difficultyBonus: Record<Difficulty, number> = {
 }
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
 const shuffle = <T,>(items: T[]) => {
   const copy = [...items]
@@ -77,8 +124,28 @@ const formatClock = (totalSeconds: number) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat('ru-RU', { day: '2-digit', hour: '2-digit', minute: '2-digit', month: 'short' }).format(
+    new Date(value),
+  )
+
 const isCompleted = (chore: AssignedChore): chore is CompletedChore =>
   chore.completed && typeof chore.completedAt === 'number'
+
+const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers || {}),
+    },
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(payload.error || 'API error')
+  }
+  return payload
+}
 
 function App() {
   const [players, setPlayers] = useState<[Player, Player]>(() => {
@@ -89,6 +156,8 @@ function App() {
     const saved = window.localStorage.getItem('wcq-chores')
     return saved ? JSON.parse(saved) : defaultChores
   })
+  const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
+  const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
   const [newChore, setNewChore] = useState({ title: '', minutes: 15, difficulty: 'normal' as Difficulty })
   const [roundMinutes, setRoundMinutes] = useState(120)
   const [phase, setPhase] = useState<Phase>('setup')
@@ -96,8 +165,22 @@ function App() {
   const [roundStartedAt, setRoundStartedAt] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
   const [musicOn, setMusicOn] = useState(false)
+  const [savedGameId, setSavedGameId] = useState('')
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
+
+  const loadState = useCallback(async () => {
+    try {
+      const state = await api<ApiState>('/api/state')
+      setRemoteState(state)
+    } catch (error) {
+      setStatus(error instanceof Error ? `Сервер истории недоступен: ${error.message}` : 'Сервер истории недоступен.')
+    }
+  }, [])
+
+  useEffect(() => {
+    loadState()
+  }, [loadState])
 
   useEffect(() => {
     window.localStorage.setItem('wcq-players', JSON.stringify(players))
@@ -118,9 +201,12 @@ function App() {
     () => [assigned.filter((chore) => chore.assignedTo === 0), assigned.filter((chore) => chore.assignedTo === 1)] as const,
     [assigned],
   )
+  const currentPairKey = players.map((player) => normalizeEmail(player.email)).sort().join('|')
+  const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
+  const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
 
   const scoreFor = useCallback(
-    (playerIndex: 0 | 1) => {
+    (playerIndex: 0 | 1): PlayerScore => {
       const completed = assigned.filter((chore) => chore.assignedTo === playerIndex && isCompleted(chore))
       const base = completed.reduce((sum, chore) => sum + 10 + chore.minutes + difficultyBonus[chore.difficulty], 0)
       const speed = completed.reduce((sum, chore) => {
@@ -136,7 +222,84 @@ function App() {
 
   const playerScores = [scoreFor(0), scoreFor(1)] as const
 
+  const updatePlayer = (index: 0 | 1, patch: Partial<Player>) => {
+    setPlayers((current) => {
+      const next: [Player, Player] = [{ ...current[0] }, { ...current[1] }]
+      next[index] = { ...next[index], ...patch }
+      return next
+    })
+  }
+
+  const applyProfile = (index: 0 | 1, profile: Profile) => {
+    updatePlayer(index, {
+      avatar: profile.avatar,
+      avatarUrl: profile.avatarUrl,
+      email: profile.email,
+      name: profile.name,
+    })
+  }
+
+  const saveProfile = async (index: 0 | 1) => {
+    const player = { ...players[index], email: normalizeEmail(players[index].email) }
+    if (!player.email.includes('@')) {
+      setStatus('Для профиля нужна почта. Подтверждений нет, это просто уникальный ключ.')
+      return
+    }
+    try {
+      const result = await api<{ profile: Profile; state: ApiState }>('/api/profiles', {
+        body: JSON.stringify(player),
+        method: 'POST',
+      })
+      applyProfile(index, result.profile)
+      setRemoteState(result.state)
+      setStatus(`Профиль ${result.profile.name} сохранён.`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось сохранить профиль.')
+    }
+  }
+
+  const uploadAvatar = async (index: 0 | 1, file: File | null) => {
+    if (!file) return
+    if (!players[index].email.includes('@')) {
+      setStatus('Сначала укажи почту профиля, потом загружай свою аватарку.')
+      return
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    try {
+      const result = await api<{ profile: Profile; state: ApiState }>('/api/avatar', {
+        body: JSON.stringify({ ...players[index], dataUrl }),
+        method: 'POST',
+      })
+      applyProfile(index, result.profile)
+      setRemoteState(result.state)
+      setStatus(`Аватарка ${result.profile.name} загружена.`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось загрузить аватарку.')
+    }
+  }
+
+  const addChore = () => {
+    const title = newChore.title.trim()
+    if (!title) return
+    setChores((current) => [...current, { ...newChore, id: makeId(), title, enabled: true }])
+    setNewChore({ title: '', minutes: 15, difficulty: 'normal' })
+  }
+
+  const updateChore = (id: string, patch: Partial<Chore>) => {
+    setChores((current) => current.map((chore) => (chore.id === id ? { ...chore, ...patch } : chore)))
+  }
+
   const startRound = () => {
+    if (players.some((player) => !normalizeEmail(player.email).includes('@'))) {
+      setStatus('Перед стартом у каждого игрока должна быть почта профиля.')
+      return
+    }
+
     const pools = shuffle(selectedChores)
     const totals = [0, 0]
     const nextAssigned: AssignedChore[] = []
@@ -156,7 +319,11 @@ function App() {
       nextAssigned.push({ ...chore, assignedTo: target as 0 | 1, completed: false, partnerRating: 0 })
     }
 
-    if (!nextAssigned.length) return
+    if (!nextAssigned.length) {
+      setStatus('Не получилось собрать раунд: выбери больше дел или увеличь лимит времени.')
+      return
+    }
+    setSavedGameId('')
     setAssigned(nextAssigned)
     setRoundStartedAt(Date.now())
     setPhase('play')
@@ -200,35 +367,18 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [completeNextFor])
 
-  const addChore = () => {
-    const title = newChore.title.trim()
-    if (!title) return
-    setChores((current) => [...current, { ...newChore, id: makeId(), title, enabled: true }])
-    setNewChore({ title: '', minutes: 15, difficulty: 'normal' })
-  }
-
-  const updatePlayer = (index: 0 | 1, patch: Partial<Player>) => {
-    setPlayers((current) => {
-      const next: [Player, Player] = [{ ...current[0] }, { ...current[1] }]
-      next[index] = { ...next[index], ...patch }
-      return next
-    })
-  }
-
-  const updateChore = (id: string, patch: Partial<Chore>) => {
-    setChores((current) => current.map((chore) => (chore.id === id ? { ...chore, ...patch } : chore)))
-  }
-
   const rateChore = (id: string, playerIndex: 0 | 1, rating: number) => {
     setAssigned((current) =>
       current.map((chore) => (chore.id === id && chore.assignedTo === playerIndex ? { ...chore, partnerRating: rating } : chore)),
     )
+    setSavedGameId('')
   }
 
   const resetRound = () => {
     setPhase('setup')
     setAssigned([])
     setRoundStartedAt(null)
+    setSavedGameId('')
   }
 
   const toggleMusic = async () => {
@@ -271,6 +421,28 @@ function App() {
   const allDone = assigned.length > 0 && assigned.every((chore) => chore.completed)
   const winner =
     playerScores[0].total === playerScores[1].total ? null : playerScores[0].total > playerScores[1].total ? 0 : 1
+  const winnerEmail = winner === null ? '' : normalizeEmail(players[winner].email)
+
+  const saveGame = async () => {
+    try {
+      const result = await api<{ game: GameRecord; state: ApiState }>('/api/games', {
+        body: JSON.stringify({
+          players: players.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
+          winnerEmail,
+          roundMinutes,
+          elapsedSeconds,
+          scores: playerScores,
+          chores: assigned,
+        }),
+        method: 'POST',
+      })
+      setRemoteState(result.state)
+      setSavedGameId(result.game.id)
+      setStatus('Игра сохранена в историю пары.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось сохранить игру.')
+    }
+  }
 
   return (
     <main className="game-shell">
@@ -278,6 +450,7 @@ function App() {
         <div>
           <p className="eyebrow">Weekend Cleanup Quest</p>
           <h1>Уборка выходного дня</h1>
+          <p className="status-line">{status}</p>
         </div>
         <button className="pixel-button alt" type="button" onClick={toggleMusic}>
           {musicOn ? 'Музыка: ON' : 'Музыка: OFF'}
@@ -286,38 +459,48 @@ function App() {
 
       {phase === 'setup' && (
         <section className="setup-grid">
-          <article className="pixel-panel">
+          <article className="pixel-panel profiles-panel">
             <div className="panel-title">
               <span>1</span>
-              <h2>Герои рейда</h2>
+              <h2>Профили игроков</h2>
             </div>
             <div className="players-editor">
               {players.map((player, index) => (
-                <div className="player-editor" key={index}>
-                  <PixelAvatar avatar={player.avatar} />
-                  <label>
-                    Имя игрока {index + 1}
-                    <input
-                      value={player.name}
-                      onChange={(event) => updatePlayer(index as 0 | 1, { name: event.target.value })}
-                    />
-                  </label>
-                  <div className="avatar-list" aria-label="Выбор аватарки">
-                    {avatarOptions.map((avatar) => (
-                      <button
-                        className={avatar === player.avatar ? 'avatar-choice active' : 'avatar-choice'}
-                        key={avatar}
-                        type="button"
-                        onClick={() => updatePlayer(index as 0 | 1, { avatar })}
-                      >
-                        <PixelAvatar avatar={avatar} small />
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <ProfileEditor
+                  index={index as 0 | 1}
+                  key={index}
+                  onApplyProfile={applyProfile}
+                  onSaveProfile={saveProfile}
+                  onUpdatePlayer={updatePlayer}
+                  onUploadAvatar={uploadAvatar}
+                  player={player}
+                  profiles={remoteState.profiles}
+                />
               ))}
             </div>
           </article>
+
+          <aside className="pixel-panel stats-panel">
+            <div className="panel-title">
+              <span>★</span>
+              <h2>Кто круче в паре</h2>
+            </div>
+            {currentPairBoard ? (
+              <div className="pair-stats">
+                <strong>{currentPairBoard.games} игр</strong>
+                <p>
+                  Общий счёт: {currentPairBoard.totalScore} · Закрыто дел: {currentPairBoard.totalChores}
+                </p>
+                {players.map((player) => (
+                  <p key={player.email}>
+                    {player.name}: побед {currentPairBoard.wins[normalizeEmail(player.email)] || 0}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="hint">У этой пары ещё нет сохранённых игр. Самое время открыть сезон.</p>
+            )}
+          </aside>
 
           <article className="pixel-panel">
             <div className="panel-title">
@@ -410,6 +593,8 @@ function App() {
             </div>
           </article>
 
+          <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} />
+
           <article className="pixel-panel start-card">
             <h2>Готовы к рейду?</h2>
             <p>
@@ -447,7 +632,7 @@ function App() {
               return (
                 <article className="pixel-panel player-board" key={playerIndex}>
                   <div className="player-card">
-                    <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} />
+                    <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} avatarUrl={players[playerIndex as 0 | 1].avatarUrl} />
                     <div>
                       <h2>{players[playerIndex as 0 | 1].name || `Игрок ${playerIndex + 1}`}</h2>
                       <p>
@@ -516,7 +701,11 @@ function App() {
             {[0, 1].map((playerIndex) => (
               <article className="pixel-panel score-card" key={playerIndex}>
                 <div className="player-card">
-                  <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} small />
+                  <PixelAvatar
+                    avatar={players[playerIndex as 0 | 1].avatar}
+                    avatarUrl={players[playerIndex as 0 | 1].avatarUrl}
+                    small
+                  />
                   <h2>{players[playerIndex as 0 | 1].name}</h2>
                 </div>
                 <strong className="big-score">{playerScores[playerIndex as 0 | 1].total}</strong>
@@ -550,6 +739,9 @@ function App() {
           </div>
 
           <div className="actions">
+            <button className="pixel-button start" disabled={Boolean(savedGameId)} type="button" onClick={saveGame}>
+              {savedGameId ? 'Игра сохранена' : 'Сохранить в историю'}
+            </button>
             <button className="pixel-button" type="button" onClick={resetRound}>
               Новый рейд
             </button>
@@ -560,15 +752,142 @@ function App() {
   )
 }
 
-function PixelAvatar({ avatar, small = false }: { avatar: string; small?: boolean }) {
+function ProfileEditor({
+  index,
+  onApplyProfile,
+  onSaveProfile,
+  onUpdatePlayer,
+  onUploadAvatar,
+  player,
+  profiles,
+}: {
+  index: 0 | 1
+  onApplyProfile: (index: 0 | 1, profile: Profile) => void
+  onSaveProfile: (index: 0 | 1) => void
+  onUpdatePlayer: (index: 0 | 1, patch: Partial<Player>) => void
+  onUploadAvatar: (index: 0 | 1, file: File | null) => void
+  player: Player
+  profiles: Profile[]
+}) {
+  return (
+    <div className="player-editor">
+      <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
+      <label>
+        Почта профиля {index + 1}
+        <input
+          placeholder="friend@example.com"
+          value={player.email}
+          onChange={(event) => onUpdatePlayer(index, { email: event.target.value })}
+        />
+      </label>
+      <label>
+        Имя героя
+        <input value={player.name} onChange={(event) => onUpdatePlayer(index, { name: event.target.value })} />
+      </label>
+      <label>
+        Выбрать существующий профиль
+        <select
+          value=""
+          onChange={(event) => {
+            const profile = profiles.find((item) => item.email === event.target.value)
+            if (profile) onApplyProfile(index, profile)
+          }}
+        >
+          <option value="">профили на сервере</option>
+          {profiles.map((profile) => (
+            <option key={profile.email} value={profile.email}>
+              {profile.name} · {profile.email}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="avatar-list" aria-label="Выбор аватарки">
+        {avatarOptions.map((avatar) => (
+          <button
+            className={avatar === player.avatar && !player.avatarUrl ? 'avatar-choice active' : 'avatar-choice'}
+            key={avatar}
+            type="button"
+            onClick={() => onUpdatePlayer(index, { avatar, avatarUrl: '' })}
+          >
+            <PixelAvatar avatar={avatar} small />
+          </button>
+        ))}
+      </div>
+      <label className="upload-label">
+        Своя аватарка
+        <input accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" type="file" onChange={(event) => onUploadAvatar(index, event.target.files?.[0] || null)} />
+      </label>
+      <button className="pixel-button wide" type="button" onClick={() => onSaveProfile(index)}>
+        Сохранить профиль
+      </button>
+    </div>
+  )
+}
+
+function Dashboard({ history, leaderboard }: { history: GameRecord[]; leaderboard: PairLeaderboard[] }) {
+  return (
+    <article className="pixel-panel dashboard-panel">
+      <div className="panel-title">
+        <span>4</span>
+        <h2>История и лидерборд</h2>
+      </div>
+      <div className="dashboard-grid">
+        <section>
+          <h3>История текущей пары</h3>
+          <div className="history-list">
+            {history.slice(0, 8).map((game) => (
+              <div className="history-row" key={game.id}>
+                <strong>{game.winnerEmail ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}` : 'Ничья'}</strong>
+                <span>
+                  {formatDate(game.finishedAt)} · {game.scores.map((score) => score.total).join(' : ')}
+                </span>
+              </div>
+            ))}
+            {!history.length && <p className="hint">Сохранённых игр этой пары пока нет.</p>}
+          </div>
+        </section>
+        <section>
+          <h3>Лидерборд пар</h3>
+          <div className="history-list">
+            {leaderboard.slice(0, 8).map((pair, index) => (
+              <div className="history-row" key={pair.pairKey}>
+                <strong>
+                  #{index + 1} {pair.players.map((player) => player.name).join(' + ')}
+                </strong>
+                <span>
+                  {pair.games} игр · {pair.totalScore} очков · {pair.totalChores} дел
+                </span>
+              </div>
+            ))}
+            {!leaderboard.length && <p className="hint">Лидерборд появится после первой сохранённой игры.</p>}
+          </div>
+        </section>
+      </div>
+    </article>
+  )
+}
+
+function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; avatarUrl?: string; small?: boolean }) {
+  if (avatarUrl) {
+    return (
+      <div className={small ? 'custom-avatar small' : 'custom-avatar'} aria-hidden="true">
+        <img alt="" src={avatarUrl} />
+      </div>
+    )
+  }
+
   return (
     <div className={small ? `pixel-avatar ${avatar} small` : `pixel-avatar ${avatar}`} aria-hidden="true">
       <span className="ear left" />
       <span className="ear right" />
+      <span className="horn left" />
+      <span className="horn right" />
       <span className="eye left" />
       <span className="eye right" />
+      <span className="snout" />
       <span className="mouth" />
       <span className="badge" />
+      <span className="spark" />
     </div>
   )
 }
