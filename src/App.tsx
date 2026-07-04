@@ -4,13 +4,21 @@ import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
 type Phase = 'setup' | 'play' | 'rating' | 'ceremony'
-type GameMode = 'duo' | 'solo'
+type GameMode = 'duo' | 'solo' | 'childQuest'
+type TierId = 'gold' | 'silver' | 'bronze' | 'none'
 
 type Player = {
   email: string
   name: string
   avatar: string
   avatarUrl?: string
+  isChild?: boolean
+}
+
+type PrizeTier = {
+  id: Exclude<TierId, 'none'>
+  label: string
+  minPercent: number
 }
 
 type Profile = Player & {
@@ -103,7 +111,11 @@ type ActiveGame = {
   roundMinutes: number
   mode?: GameMode
   prize?: string
+  prizeTiers?: PrizeTier[]
   targetScore?: number
+  childPlayerIndex?: number
+  parentPlayerIndex?: number
+  requirePhotoProof?: boolean
   startedAt: string
   updatedAt: string
 }
@@ -118,6 +130,61 @@ type ChoreStat = {
 const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
 const roomIconOptions = ['bath', 'kitchen', 'living', 'bedroom', 'toilet', 'hall', 'wardrobe', 'storage', 'garden', 'outside', 'dining', 'garage']
 const defaultSections = ['Дела по дому', 'Уход за собой']
+const PUBLIC_SITE = 'https://tidytitans.ru'
+
+const defaultPrizeTiers: PrizeTier[] = [
+  { id: 'gold', label: '', minPercent: 100 },
+  { id: 'silver', label: '', minPercent: 85 },
+  { id: 'bronze', label: '', minPercent: 75 },
+]
+
+const tierLabels: Record<Exclude<TierId, 'none'>, string> = {
+  gold: 'Золото',
+  silver: 'Серебро',
+  bronze: 'Бронза',
+}
+
+const getShareOrigin = () => {
+  if (typeof window === 'undefined') return PUBLIC_SITE
+  const { hostname, origin } = window.location
+  if (hostname === 'tidytitans.ru' || hostname === 'www.tidytitans.ru') return PUBLIC_SITE
+  return origin
+}
+
+const choreBasePoints = (chore: { minutes: number; difficulty: Difficulty }) =>
+  10 + chore.minutes + difficultyBonus[chore.difficulty]
+
+const getTierFromScore = (coins: number, target: number): TierId => {
+  if (target <= 0) return 'none'
+  const pct = (coins / target) * 100
+  if (pct >= 100) return 'gold'
+  if (pct >= 85) return 'silver'
+  if (pct >= 75) return 'bronze'
+  return 'none'
+}
+
+const getNextTierInfo = (coins: number, target: number) => {
+  const current = getTierFromScore(coins, target)
+  if (current === 'gold') return { current, next: null as TierId | null, remaining: 0 }
+  if (current === 'silver') return { current, next: 'gold' as TierId, remaining: Math.max(0, Math.ceil(target - coins)) }
+  if (current === 'bronze') return { current, next: 'silver' as TierId, remaining: Math.max(0, Math.ceil(target * 0.85 - coins)) }
+  return { current, next: 'bronze' as TierId, remaining: Math.max(0, Math.ceil(target * 0.75 - coins)) }
+}
+
+const copyText = async (text: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.style.position = 'fixed'
+  area.style.left = '-9999px'
+  document.body.appendChild(area)
+  area.select()
+  document.execCommand('copy')
+  document.body.removeChild(area)
+}
 
 const defaultPlayers: Player[] = [
   { email: 'you@example.com', name: 'Вы', avatar: 'fox' },
@@ -319,11 +386,21 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       name: String(player?.name || defaultPlayers[index]?.name || `Игрок ${index + 1}`),
       avatar: String(player?.avatar || defaultPlayers[index]?.avatar || avatarOptions[index % avatarOptions.length]),
       avatarUrl: player?.avatarUrl ? String(player.avatarUrl) : '',
+      isChild: Boolean(player?.isChild),
     }))
   })
   const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
   const [gameMode, setGameMode] = useState<GameMode>(() => readLocalJson<GameMode>('wcq-game-mode', 'duo'))
   const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
+  const [prizeTiers, setPrizeTiers] = useState<PrizeTier[]>(() => {
+    const saved = readLocalJson<unknown>('wcq-prize-tiers', null)
+    if (!Array.isArray(saved)) return defaultPrizeTiers
+    return defaultPrizeTiers.map((tier, index) => ({
+      ...tier,
+      label: String((saved[index] as PrizeTier | undefined)?.label || ''),
+    }))
+  })
+  const [requirePhotoProof, setRequirePhotoProof] = useState(() => readLocalJson<boolean>('wcq-require-photo', false))
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
   const [extraChore, setExtraChore] = useState({ assignedTo: 0, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
   const [extraReviews, setExtraReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
@@ -348,9 +425,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [savedGameId, setSavedGameId] = useState('')
   const [activeGameId, setActiveGameId] = useState(() => initialGameId || readLocalJson<string>('wcq-active-game-id', ''))
   const [qrCodes, setQrCodes] = useState<string[]>([])
+  const [playerLinks, setPlayerLinks] = useState<string[]>([])
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
-  const activePlayerIndexes = useMemo(() => (gameMode === 'solo' ? [0] : players.map((_, index) => index)), [gameMode, players])
+  const childPlayerIndex = useMemo(() => players.findIndex((player) => player.isChild), [players])
+  const parentPlayerIndex = useMemo(() => players.findIndex((player) => !player.isChild), [players])
+  const activePlayerIndexes = useMemo(() => {
+    if (gameMode === 'solo') return [0]
+    if (gameMode === 'childQuest') return childPlayerIndex >= 0 ? [childPlayerIndex] : []
+    return players.map((_, index) => index)
+  }, [childPlayerIndex, gameMode, players])
 
   const loadState = useCallback(async () => {
     try {
@@ -379,6 +463,14 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   useEffect(() => {
     writeLocalJson('wcq-prize', prize)
   }, [prize])
+
+  useEffect(() => {
+    writeLocalJson('wcq-prize-tiers', prizeTiers)
+  }, [prizeTiers])
+
+  useEffect(() => {
+    writeLocalJson('wcq-require-photo', requirePhotoProof)
+  }, [requirePhotoProof])
 
   useEffect(() => {
     writeLocalJson('wcq-target-score', targetScore)
@@ -412,13 +504,17 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }
 
     const makeCodes = async () => {
-      const base = window.location.origin
+      const base = getShareOrigin()
       const urls = activePlayerIndexes.map((playerIndex) => `${base}/player/${activeGameId}/${playerIndex}`)
+      setPlayerLinks(urls)
       const codes = await Promise.all(urls.map((url) => QRCode.toDataURL(url, { margin: 1, width: 220 })))
       setQrCodes(codes)
     }
 
-    makeCodes().catch(() => setQrCodes([]))
+    makeCodes().catch(() => {
+      setQrCodes([])
+      setPlayerLinks([])
+    })
   }, [activeGameId, activePlayerIndexes])
 
   useEffect(() => {
@@ -480,9 +576,21 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   )
 
   const playerScores = players.map((_, index) => scoreFor(index))
+  const childCoins = useMemo(() => {
+    if (gameMode !== 'childQuest' || childPlayerIndex < 0) return 0
+    return assigned
+      .filter((chore) => chore.assignedTo === childPlayerIndex && isCompleted(chore))
+      .reduce((sum, chore) => sum + choreBasePoints(chore), 0)
+  }, [assigned, childPlayerIndex, gameMode])
+  const childTier = gameMode === 'childQuest' ? getTierFromScore(childCoins, targetScore) : 'none'
+  const childTierInfo = gameMode === 'childQuest' ? getNextTierInfo(childCoins, targetScore) : null
   const rankedPlayers = activePlayerIndexes.slice().sort((a, b) => playerScores[b].total - playerScores[a].total)
   const winner =
-    gameMode === 'solo'
+    gameMode === 'childQuest'
+      ? childTier === 'none'
+        ? null
+        : childPlayerIndex
+      : gameMode === 'solo'
       ? playerScores[0].total >= Math.ceil(targetScore * 0.9)
         ? 0
         : null
@@ -496,6 +604,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     setPlayers((current) => {
       const next = current.map((player) => ({ ...player }))
       next[index] = { ...next[index], ...patch }
+      if (patch.isChild) {
+        next.forEach((player, itemIndex) => {
+          if (itemIndex !== index) player.isChild = false
+        })
+      }
       return next
     })
   }
@@ -521,7 +634,18 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       avatar: profile.avatar,
       avatarUrl: profile.avatarUrl,
       name: profile.name,
+      isChild: profile.isChild,
     })
+  }
+
+  const copyPlayerLink = async (playerIndex: number) => {
+    const url = playerLinks[playerIndex] || `${getShareOrigin()}/player/${activeGameId}/${playerIndex}`
+    try {
+      await copyText(url)
+      setStatus('Ссылка скопирована — отправь её ребёнку в мессенджер.')
+    } catch {
+      setStatus(`Не удалось скопировать. Ссылка: ${url}`)
+    }
   }
 
   const openActiveGame = async (gameId: string) => {
@@ -533,6 +657,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setRoundStartedAt(new Date(result.game.startedAt).getTime())
       setGameMode(result.game.mode || 'duo')
       setPrize(result.game.prize || '')
+      setPrizeTiers(result.game.prizeTiers || defaultPrizeTiers)
+      setRequirePhotoProof(Boolean(result.game.requirePhotoProof))
       setTargetScore(result.game.targetScore || targetScore)
       setPhase('play')
       window.history.replaceState(null, '', `/game/${result.game.id}`)
@@ -561,7 +687,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   }
 
   const saveProfile = async (index: number) => {
-    const player = { ...players[index], email: gamePlayers[index].email }
+    const player = { ...players[index], email: gamePlayers[index].email, isChild: players[index].isChild }
     if (!normalizeEmail(pairEmail).includes('@')) {
       setStatus('Введите общую почту пары, чтобы сохранить профиль.')
       return
@@ -665,14 +791,30 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setStatus('Введите общую почту пары перед стартом уборки.')
       return
     }
-    if (!prize.trim()) {
+    if (gameMode === 'childQuest') {
+      if (childPlayerIndex < 0) {
+        setStatus('Отметьте одного персонажа как ребёнка.')
+        return
+      }
+      if (!prizeTiers.every((tier) => tier.label.trim())) {
+        setStatus('Укажите призы для золота, серебра и бронзы.')
+        return
+      }
+    } else if (!prize.trim()) {
       setStatus('Укажите приз или награду перед стартом уборки.')
       return
     }
 
     const totals = players.map(() => 0)
     const nextAssigned: AssignedChore[] = []
+    const roundTargetScore = gameMode === 'childQuest' ? recommendedScore : targetScore
 
+    if (gameMode === 'childQuest') {
+      for (const item of sectionChores.filter((chore) => chore.enabled)) {
+        const tasks = getAssignableTasks(item)
+        tasks.forEach((chore) => nextAssigned.push({ ...chore, assignedTo: childPlayerIndex }))
+      }
+    } else {
     const assignTask = (chore: AssignedChore, preferred?: number) => {
       const order: number[] =
         gameMode === 'solo'
@@ -705,6 +847,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
       assignTask(tasks[0])
     }
+    }
 
     if (!nextAssigned.length) {
       setStatus('Не получилось собрать раунд: выбери больше дел или увеличь лимит времени.')
@@ -713,23 +856,36 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     setSavedGameId('')
     setAssigned(nextAssigned)
     setRoundStartedAt(Date.now())
+    if (gameMode === 'childQuest') setTargetScore(roundTargetScore)
     setPhase('play')
     try {
       const result = await api<{ game: ActiveGame }>('/api/active-games', {
         body: JSON.stringify({
           chores: nextAssigned,
           mode: gameMode,
-          players: gamePlayers.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
-          prize,
+          players: gamePlayers.map((player, index) => ({
+            ...player,
+            email: normalizeEmail(player.email),
+            isChild: Boolean(players[index]?.isChild),
+          })),
+          prize: gameMode === 'childQuest' ? prizeTiers.find((tier) => tier.id === 'gold')?.label || '' : prize,
+          prizeTiers: gameMode === 'childQuest' ? prizeTiers : undefined,
+          childPlayerIndex: gameMode === 'childQuest' ? childPlayerIndex : undefined,
+          parentPlayerIndex: gameMode === 'childQuest' ? parentPlayerIndex : undefined,
+          requirePhotoProof: gameMode === 'childQuest' ? requirePhotoProof : undefined,
           roundMinutes,
-          targetScore,
+          targetScore: roundTargetScore,
         }),
         method: 'POST',
       })
       setActiveGameId(result.game.id)
       window.history.replaceState(null, '', `/game/${result.game.id}`)
       setAssigned(result.game.chores)
-      setStatus('QR-коды готовы: можно отмечать дела с телефонов.')
+      setStatus(
+        gameMode === 'childQuest'
+          ? 'Квест готов! Скопируй ссылку ребёнку или покажи QR.'
+          : 'QR-коды готовы: можно отмечать дела с телефонов.',
+      )
     } catch (error) {
       setActiveGameId('')
       setStatus(error instanceof Error ? `Игра стартовала, но QR не создался: ${error.message}` : 'Игра стартовала, но QR не создался.')
@@ -924,10 +1080,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     try {
       const result = await api<{ game: GameRecord; state: ApiState }>('/api/games', {
         body: JSON.stringify({
-          players: gamePlayers.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
+          players: gamePlayers.map((player, index) => ({
+            ...player,
+            email: normalizeEmail(player.email),
+            isChild: Boolean(players[index]?.isChild),
+          })),
           winnerEmail,
           mode: gameMode,
-          prize,
+          prize: gameMode === 'childQuest' ? prizeTiers.find((tier) => tier.id === childTier)?.label || prize : prize,
+          prizeTiers: gameMode === 'childQuest' ? prizeTiers : undefined,
           roundMinutes,
           targetScore,
           elapsedSeconds,
@@ -948,7 +1109,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     <main className="game-shell">
       <header className="topbar pixel-panel">
         <div>
-          <p className="eyebrow">Weekend Cleanup Quest</p>
+          <p className="eyebrow">Tidy Titans</p>
           <h1>Уборка выходного дня</h1>
           <p className="status-line">{status}</p>
           <label className="pair-email-label">
@@ -982,12 +1143,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               <span>1</span>
               <h2>Профили игроков</h2>
             </div>
-            <div className="mode-grid">
+            <div className="mode-grid mode-grid-three">
               <button className={gameMode === 'duo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('duo')}>
                 Парная игра
               </button>
               <button className={gameMode === 'solo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('solo')}>
                 Одиночный режим
+              </button>
+              <button className={gameMode === 'childQuest' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => setGameMode('childQuest')}>
+                Квест для ребёнка
               </button>
               {gameMode === 'solo' && (
                 <label>
@@ -1008,6 +1172,42 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   </button>
                 </label>
               )}
+              {gameMode === 'childQuest' && (
+                <div className="child-setup-block">
+                  <p className="hint">
+                    Отметьте одного персонажа как ребёнка. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
+                  </p>
+                  <label className="child-proof-toggle">
+                    <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
+                    Нужны фотографии для подтверждения (скоро)
+                  </label>
+                  <div className="tier-prize-grid">
+                    {prizeTiers.map((tier) => (
+                      <label key={tier.id}>
+                        <span className="tier-prize-label">
+                          <PrizeSprite tier={tier.id} small />
+                          {tierLabels[tier.id]} ({tier.minPercent}%+)
+                        </span>
+                        <input
+                          placeholder={
+                            tier.id === 'gold'
+                              ? 'Например: поход в кино'
+                              : tier.id === 'silver'
+                                ? 'Например: мороженое'
+                                : 'Например: наклейка'
+                          }
+                          value={tier.label}
+                          onChange={(event) =>
+                            setPrizeTiers((current) =>
+                              current.map((item) => (item.id === tier.id ? { ...item, label: event.target.value } : item)),
+                            )
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="players-editor">
               {players.slice(0, gameMode === 'solo' ? 1 : players.length).map((player, index) => (
@@ -1022,10 +1222,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   profiles={remoteState.profiles}
                   canRemove={gameMode !== 'solo' && players.length > 1}
                   onRemovePlayer={removePlayer}
+                  showChildToggle={gameMode === 'childQuest'}
                 />
               ))}
             </div>
-            {gameMode !== 'solo' && (
+            {gameMode !== 'solo' && gameMode !== 'childQuest' && (
+              <button className="pixel-button alt wide" type="button" onClick={addPlayer}>
+                Добавить персонажа
+              </button>
+            )}
+            {gameMode === 'childQuest' && players.length < 3 && (
               <button className="pixel-button alt wide" type="button" onClick={addPlayer}>
                 Добавить персонажа
               </button>
@@ -1112,8 +1318,14 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             <h2>Готовы к уборке?</h2>
             <div className="start-card-body">
               <p>
-                Выбрано поддел: <strong>{selectedTasks.length}</strong>. {gameMode === 'solo' ? `Цель: ${targetScore} очков.` : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
+                Выбрано поддел: <strong>{selectedTasks.length}</strong>.{' '}
+                {gameMode === 'childQuest'
+                  ? `Цель ребёнка: ${recommendedScore} монет.`
+                  : gameMode === 'solo'
+                    ? `Цель: ${targetScore} очков.`
+                    : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
               </p>
+              {gameMode !== 'childQuest' && (
               <label>
                 Приз / награда
                 <input
@@ -1122,9 +1334,18 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   onChange={(event) => setPrize(event.target.value)}
                 />
               </label>
+              )}
             </div>
-            <button className="pixel-button start" disabled={!selectedTasks.length || !prize.trim()} type="button" onClick={startRound}>
-              Сгенерировать уборку
+            <button
+              className="pixel-button start"
+              disabled={
+                !selectedTasks.length ||
+                (gameMode === 'childQuest' ? !prizeTiers.every((tier) => tier.label.trim()) || childPlayerIndex < 0 : !prize.trim())
+              }
+              type="button"
+              onClick={startRound}
+            >
+              {gameMode === 'childQuest' ? 'Запустить квест' : 'Сгенерировать уборку'}
             </button>
           </article>
         </section>
@@ -1134,17 +1355,37 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         <section className="play-screen">
           <div className="hud pixel-panel">
             <div>
-              <p className="eyebrow">Время рейда</p>
+              <p className="eyebrow">{gameMode === 'childQuest' ? 'Время квеста' : 'Время рейда'}</p>
               <strong>{formatClock(elapsedSeconds)}</strong>
             </div>
             <div>
-              <p className="eyebrow">Горячие клавиши</p>
-              <strong>Space / Enter</strong>
+              <p className="eyebrow">{gameMode === 'childQuest' ? 'Прогресс ребёнка' : 'Горячие клавиши'}</p>
+              <strong>
+                {gameMode === 'childQuest' && childPlayerIndex >= 0
+                  ? `${childCoins} / ${targetScore} монет`
+                  : 'Space / Enter'}
+              </strong>
             </div>
-            <button className="pixel-button" type="button" onClick={() => setPhase('rating')}>
-              К оценкам
+            <button className="pixel-button" type="button" onClick={() => setPhase(gameMode === 'childQuest' ? 'ceremony' : 'rating')}>
+              {gameMode === 'childQuest' ? 'Завершить квест' : 'К оценкам'}
             </button>
           </div>
+
+          {gameMode === 'childQuest' && childPlayerIndex >= 0 && childTierInfo && (
+            <article className="pixel-panel parent-watch-card">
+              <div className="parent-watch-header">
+                <div>
+                  <p className="eyebrow">Родительский экран</p>
+                  <h2>{players[childPlayerIndex].name} играет квест</h2>
+                  <p>
+                    Монеты: <strong>{childCoins}</strong> / {targetScore} · Уровень:{' '}
+                    <strong>{childTier === 'none' ? 'пока без приза' : tierLabels[childTier as Exclude<TierId, 'none'>]}</strong>
+                  </p>
+                </div>
+                <ChildQuestHud coins={childCoins} target={targetScore} prizeTiers={prizeTiers} compact />
+              </div>
+            </article>
+          )}
 
           <div className="battlefield">
             {activePlayerIndexes.map((playerIndex) => {
@@ -1173,8 +1414,12 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                     <div className="qr-card">
                       <img alt={`QR для ${players[playerIndex].name}`} src={qrCodes[playerIndex]} />
                       <div>
-                        <strong>Сканируй телефоном</strong>
+                        <strong>{gameMode === 'childQuest' ? 'Ссылка для ребёнка' : 'Сканируй телефоном'}</strong>
                         <span>Откроются только дела {players[playerIndex].name}</span>
+                        {playerLinks[playerIndex] && <code className="player-link">{playerLinks[playerIndex]}</code>}
+                        <button className="pixel-button alt wide" type="button" onClick={() => copyPlayerLink(playerIndex)}>
+                          Скопировать ссылку
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1206,15 +1451,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           {allDone && (
             <div className="pixel-panel all-done">
               <h2>Все дела закрыты!</h2>
-              <button className="pixel-button start" type="button" onClick={() => setPhase('rating')}>
-                К оценкам партнёра
+              <button className="pixel-button start" type="button" onClick={() => setPhase(gameMode === 'childQuest' ? 'ceremony' : 'rating')}>
+                {gameMode === 'childQuest' ? 'Показать приз' : 'К оценкам партнёра'}
               </button>
             </div>
           )}
         </section>
       )}
 
-      {phase === 'rating' && (
+      {phase === 'rating' && gameMode !== 'childQuest' && (
         <section className="results-screen">
           <article className="pixel-panel winner-card calm">
             <p className="eyebrow">Сначала оценки</p>
@@ -1257,9 +1502,18 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         <section className="results-screen ceremony-screen">
           <article className="pixel-panel certificate">
             <div className="confetti" />
+            {gameMode === 'childQuest' && childTier !== 'none' && (
+              <div className="ceremony-medal">
+                <PrizeSprite tier={childTier as Exclude<TierId, 'none'>} />
+              </div>
+            )}
             <p className="eyebrow">Грамота победителя</p>
             <h2>
-              {gameMode === 'solo'
+              {gameMode === 'childQuest'
+                ? childTier === 'none'
+                  ? 'Квест завершён'
+                  : `Приз: ${tierLabels[childTier as Exclude<TierId, 'none'>]}!`
+                : gameMode === 'solo'
                 ? winner === null
                   ? 'Почти победа'
                   : 'Личная победа!'
@@ -1268,14 +1522,22 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   : `Президент уборки: ${players[winner].name}`}
             </h2>
             <p className="certificate-name">
-              {gameMode === 'solo'
+              {gameMode === 'childQuest' && childPlayerIndex >= 0
+                ? players[childPlayerIndex].name
+                : gameMode === 'solo'
                 ? players[0].name
                 : winner === null
                   ? activePlayerIndexes.map((index) => players[index].name).join(' + ')
                   : players[winner].name}
             </p>
             <p>
-              {gameMode === 'solo'
+              {gameMode === 'childQuest'
+                ? childTier === 'none'
+                  ? `Набрано ${childCoins} из ${targetScore} монет. Приз не разблокирован — но дом стал чище!`
+                  : `Набрано ${childCoins} монет. Награда: ${
+                      prizeTiers.find((tier) => tier.id === childTier)?.label || 'заслуженный приз'
+                    }.`
+                : gameMode === 'solo'
                 ? `Цель: ${targetScore} очков. Набрано: ${playerScores[0].total}. ${winner === null ? 'Чуть-чуть не хватило, но дом всё равно стал лучше.' : `Награда разблокирована: ${prize || 'выбери себе приятный приз'}.`}`
                 : `За героическую битву с пылью, баночками, посудой и хаосом. Дом получает +100 к уюту, а победитель получает приз: ${prize || 'заслуженная радость'}.`}
             </p>
@@ -1667,6 +1929,7 @@ function ProfileEditor({
   onUploadAvatar,
   player,
   profiles,
+  showChildToggle = false,
 }: {
   canRemove?: boolean
   index: number
@@ -1677,6 +1940,7 @@ function ProfileEditor({
   onUploadAvatar: (index: number, file: File | null) => void
   player: Player
   profiles: Profile[]
+  showChildToggle?: boolean
 }) {
   return (
     <div className="player-editor">
@@ -1685,6 +1949,12 @@ function ProfileEditor({
         Имя героя
         <input value={player.name} onChange={(event) => onUpdatePlayer(index, { name: event.target.value })} />
       </label>
+      {showChildToggle && (
+        <label className="child-flag">
+          <input checked={Boolean(player.isChild)} type="checkbox" onChange={(event) => onUpdatePlayer(index, { isChild: event.target.checked })} />
+          Это ребёнок (играет по ссылке)
+        </label>
+      )}
       <label>
         Выбрать существующий профиль
         <select
@@ -1799,6 +2069,60 @@ function Dashboard({
         </section>
       </div>
     </article>
+  )
+}
+
+function PrizeSprite({ tier, small = false }: { tier: Exclude<TierId, 'none'> | 'coin'; small?: boolean }) {
+  return (
+    <img
+      alt=""
+      className={small ? `prize-sprite small ${tier}` : `prize-sprite ${tier}`}
+      src={`/sprites/${tier}.svg`}
+    />
+  )
+}
+
+function ChildQuestHud({
+  coins,
+  compact = false,
+  prizeTiers = defaultPrizeTiers,
+  target,
+}: {
+  coins: number
+  compact?: boolean
+  prizeTiers?: PrizeTier[]
+  target: number
+}) {
+  const info = getNextTierInfo(coins, target)
+  const currentPrize =
+    info.current !== 'none' ? prizeTiers.find((tier) => tier.id === info.current)?.label || '' : ''
+
+  return (
+    <div className={compact ? 'child-quest-hud compact' : 'child-quest-hud'}>
+      <div className="coin-row">
+        <PrizeSprite tier="coin" small />
+        <strong>{coins}</strong>
+        <span>/ {target} монет</span>
+      </div>
+      <div className="tier-track">
+        {(['bronze', 'silver', 'gold'] as const).map((tier) => {
+          const threshold = tier === 'gold' ? 1 : tier === 'silver' ? 0.85 : 0.75
+          const unlocked = target > 0 && coins >= Math.ceil(target * threshold)
+          return (
+            <div className={`tier-badge ${info.current === tier ? 'active' : unlocked ? 'unlocked' : ''}`} key={tier}>
+              <PrizeSprite tier={tier} small />
+              <span>{tierLabels[tier]}</span>
+            </div>
+          )
+        })}
+      </div>
+      {info.current !== 'gold' && info.next && info.remaining > 0 && (
+        <p className="tier-hint">
+          До {tierLabels[info.next as Exclude<TierId, 'none'>]}: +{info.remaining} монет
+        </p>
+      )}
+      {currentPrize && <p className="tier-win">Сейчас выигрываешь: {currentPrize}</p>}
+    </div>
   )
 }
 
@@ -1918,7 +2242,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
     return (
       <main className="mobile-shell">
         <section className="pixel-panel mobile-panel">
-          <p className="eyebrow">Weekend Cleanup Quest</p>
+          <p className="eyebrow">Tidy Titans</p>
           <h1>Мои дела</h1>
           <p>{status}</p>
         </section>
@@ -1940,17 +2264,35 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
   }
   const chores = game.chores.filter((chore) => chore.assignedTo === playerIndex)
   const reviewChores = game.chores.filter((chore) => chore.extra && !chore.approved && chore.reviewBy === playerIndex)
-  const ratingChores = game.chores.filter((chore) => chore.completed && chore.assignedTo !== playerIndex && (!chore.extra || chore.approved))
+  const ratingChores =
+    game.mode === 'childQuest'
+      ? []
+      : game.chores.filter((chore) => chore.completed && chore.assignedTo !== playerIndex && (!chore.extra || chore.approved))
   const done = chores.filter((chore) => chore.completed).length
   const next = chores.find((chore) => !chore.completed)
+  const childCoins = chores.filter((chore) => chore.completed).reduce((sum, chore) => sum + choreBasePoints(chore), 0)
+  const childTarget = game.targetScore || 0
+  const playerLink = `${getShareOrigin()}/player/${sessionId}/${playerIndex}`
+
+  const shareLink = async () => {
+    try {
+      await copyText(playerLink)
+      setStatus('Ссылка скопирована')
+    } catch {
+      setStatus(playerLink)
+    }
+  }
 
   return (
-    <main className="mobile-shell">
+    <main className={game.mode === 'childQuest' ? 'mobile-shell kids-mode' : 'mobile-shell'}>
       <section className="pixel-panel mobile-panel">
+        {game.mode === 'childQuest' && (
+          <ChildQuestHud coins={childCoins} prizeTiers={game.prizeTiers} target={childTarget} />
+        )}
         <div className="player-card">
           <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
           <div>
-            <p className="eyebrow">Моя уборка</p>
+            <p className="eyebrow">{game.mode === 'childQuest' ? 'Tidy Titans' : 'Моя уборка'}</p>
             <h1>{player.name}</h1>
             <p>
               {done}/{chores.length} дел · {status}
@@ -2082,6 +2424,12 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
         <button className="pixel-button start mobile-done" disabled={!next} type="button" onClick={() => complete()}>
           Сделано!
         </button>
+
+        {game.mode === 'childQuest' && (
+          <button className="pixel-button alt wide" type="button" onClick={shareLink}>
+            Поделиться ссылкой
+          </button>
+        )}
       </section>
     </main>
   )

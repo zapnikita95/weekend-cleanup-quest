@@ -160,6 +160,7 @@ const createActiveGame = async (request, response) => {
         name: String(player.name || '').trim(),
         avatar: String(player.avatar || 'fox'),
         avatarUrl: String(player.avatarUrl || ''),
+        isChild: Boolean(player.isChild),
       }))
     : []
   const chores = Array.isArray(body.chores) ? body.chores : []
@@ -173,15 +174,20 @@ const createActiveGame = async (request, response) => {
   const existingId = String(body.id || '')
   const id = existingId && db.activeGames[existingId] ? existingId : makeId()
   const previous = db.activeGames[id] || {}
+  const mode = body.mode === 'solo' ? 'solo' : body.mode === 'childQuest' ? 'childQuest' : 'duo'
   const activeGame = {
     id,
     pairKey: getPairKey(players),
     players,
     chores,
-    mode: body.mode === 'solo' ? 'solo' : 'duo',
+    mode,
     prize: String(body.prize || previous.prize || ''),
+    prizeTiers: Array.isArray(body.prizeTiers) ? body.prizeTiers : previous.prizeTiers || [],
     roundMinutes: Number(body.roundMinutes || previous.roundMinutes || 0),
     targetScore: Number(body.targetScore || previous.targetScore || 0),
+    childPlayerIndex: Number.isInteger(body.childPlayerIndex) ? Number(body.childPlayerIndex) : previous.childPlayerIndex,
+    parentPlayerIndex: Number.isInteger(body.parentPlayerIndex) ? Number(body.parentPlayerIndex) : previous.parentPlayerIndex,
+    requirePhotoProof: Boolean(body.requirePhotoProof ?? previous.requirePhotoProof),
     startedAt: previous.startedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -367,6 +373,7 @@ const upsertProfile = async (request, response) => {
     name: String(body.name || previous.name || email.split('@')[0]).trim(),
     avatar: String(body.avatar || previous.avatar || 'fox'),
     avatarUrl: body.avatarUrl || previous.avatarUrl || '',
+    isChild: Boolean(body.isChild ?? previous.isChild),
     createdAt: previous.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -426,6 +433,7 @@ const createGame = async (request, response) => {
         name: String(player.name || '').trim(),
         avatar: String(player.avatar || 'fox'),
         avatarUrl: String(player.avatarUrl || ''),
+        isChild: Boolean(player.isChild),
       }))
     : []
 
@@ -448,6 +456,7 @@ const createGame = async (request, response) => {
       name: player.name || previous.name || player.email.split('@')[0],
       avatar: player.avatar || previous.avatar || 'fox',
       avatarUrl: player.avatarUrl || previous.avatarUrl || '',
+      isChild: Boolean(player.isChild ?? previous.isChild),
       createdAt: previous.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -459,8 +468,9 @@ const createGame = async (request, response) => {
     pairKey: getPairKey(players),
     players,
     winnerEmail,
-    mode: body.mode === 'solo' ? 'solo' : 'duo',
+    mode: body.mode === 'solo' ? 'solo' : body.mode === 'childQuest' ? 'childQuest' : 'duo',
     prize: String(body.prize || ''),
+    prizeTiers: Array.isArray(body.prizeTiers) ? body.prizeTiers : [],
     roundMinutes: Number(body.roundMinutes || 0),
     targetScore: Number(body.targetScore || 0),
     elapsedSeconds: Number(body.elapsedSeconds || 0),
