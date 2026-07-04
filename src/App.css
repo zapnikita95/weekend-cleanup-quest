@@ -38,6 +38,16 @@
   font-weight: 700;
 }
 
+.pair-email-label {
+  max-width: 560px;
+  margin-top: 14px;
+}
+
+.pair-email-label input {
+  margin-top: 8px;
+  background: rgba(255, 250, 240, 0.92);
+}
+
 h1,
 h2,
 h3,
@@ -768,12 +778,19 @@ label {
 }
 
 .pixel-avatar .badge {
-  right: 9px;
-  bottom: 8px;
-  width: 12px;
-  height: 12px;
+  right: -14px;
+  bottom: 16px;
+  width: 14px;
+  height: 18px;
   background: var(--sun);
   border: 2px solid var(--ink);
+}
+
+.pixel-avatar.small .badge {
+  right: -8px;
+  bottom: 8px;
+  width: 8px;
+  height: 11px;
 }
 
 .pixel-avatar .spark {

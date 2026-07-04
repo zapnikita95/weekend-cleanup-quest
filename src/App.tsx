@@ -143,6 +143,10 @@ const difficultyBonus: Record<Difficulty, number> = {
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
+const pairPlayerEmail = (pairEmail: string, index: 0 | 1) => {
+  const email = normalizeEmail(pairEmail)
+  return email ? `${email}#player-${index + 1}` : ''
+}
 const isGroup = (item: ChoreItem): item is ChoreGroup => 'children' in item
 const isCompleted = (chore: AssignedChore): chore is CompletedChore =>
   chore.completed && typeof chore.completedAt === 'number'
@@ -278,6 +282,7 @@ function App() {
       avatarUrl: player?.avatarUrl ? String(player.avatarUrl) : '',
     })) as [Player, Player]
   })
+  const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
   const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(readLocalJson<unknown>('wcq-chores', null)))
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
   const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
@@ -310,6 +315,10 @@ function App() {
   }, [players])
 
   useEffect(() => {
+    writeLocalJson('wcq-pair-email', pairEmail)
+  }, [pairEmail])
+
+  useEffect(() => {
     writeLocalJson('wcq-chores', chores)
   }, [chores])
 
@@ -324,10 +333,14 @@ function App() {
     () => [assigned.filter((chore) => chore.assignedTo === 0), assigned.filter((chore) => chore.assignedTo === 1)] as const,
     [assigned],
   )
-  const currentPairKey = players.map((player) => normalizeEmail(player.email)).sort().join('|')
+  const gamePlayers = useMemo(
+    () => players.map((player, index) => ({ ...player, email: pairPlayerEmail(pairEmail, index as 0 | 1) })) as [Player, Player],
+    [pairEmail, players],
+  )
+  const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
   const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
   const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
-  const choreStats = useMemo(() => computeChoreStats(currentPairGames, players), [currentPairGames, players])
+  const choreStats = useMemo(() => computeChoreStats(currentPairGames, gamePlayers), [currentPairGames, gamePlayers])
 
   const scoreFor = useCallback(
     (playerIndex: 0 | 1): PlayerScore => {
@@ -347,7 +360,7 @@ function App() {
   const playerScores = [scoreFor(0), scoreFor(1)] as const
   const winner =
     playerScores[0].total === playerScores[1].total ? null : playerScores[0].total > playerScores[1].total ? 0 : 1
-  const winnerEmail = winner === null ? '' : normalizeEmail(players[winner].email)
+  const winnerEmail = winner === null ? '' : normalizeEmail(gamePlayers[winner].email)
   const allDone = assigned.length > 0 && assigned.every((chore) => chore.completed)
 
   const updatePlayer = (index: 0 | 1, patch: Partial<Player>) => {
@@ -362,15 +375,14 @@ function App() {
     updatePlayer(index, {
       avatar: profile.avatar,
       avatarUrl: profile.avatarUrl,
-      email: profile.email,
       name: profile.name,
     })
   }
 
   const saveProfile = async (index: 0 | 1) => {
-    const player = { ...players[index], email: normalizeEmail(players[index].email) }
-    if (!player.email.includes('@')) {
-      setStatus('Для профиля нужна почта. Подтверждений нет, это просто уникальный ключ.')
+    const player = { ...players[index], email: gamePlayers[index].email }
+    if (!normalizeEmail(pairEmail).includes('@')) {
+      setStatus('Введите общую почту пары, чтобы сохранить профиль.')
       return
     }
     try {
@@ -388,8 +400,8 @@ function App() {
 
   const uploadAvatar = async (index: 0 | 1, file: File | null) => {
     if (!file) return
-    if (!players[index].email.includes('@')) {
-      setStatus('Сначала укажи почту профиля, потом загружай свою аватарку.')
+    if (!normalizeEmail(pairEmail).includes('@')) {
+      setStatus('Сначала укажи общую почту пары, потом загружай аватарку.')
       return
     }
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -400,12 +412,12 @@ function App() {
     })
     try {
       const result = await api<{ profile: Profile; state: ApiState }>('/api/avatar', {
-        body: JSON.stringify({ ...players[index], dataUrl }),
+        body: JSON.stringify({ ...players[index], email: gamePlayers[index].email, dataUrl }),
         method: 'POST',
       })
       applyProfile(index, result.profile)
       setRemoteState(result.state)
-      setStatus(`Аватарка ${result.profile.name} загружена.`)
+      setStatus('Профиль обновлён.')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить аватарку.')
     }
@@ -460,8 +472,8 @@ function App() {
   }
 
   const startRound = () => {
-    if (players.some((player) => !normalizeEmail(player.email).includes('@'))) {
-      setStatus('Перед стартом у каждого игрока должна быть почта профиля.')
+    if (!normalizeEmail(pairEmail).includes('@')) {
+      setStatus('Введите общую почту пары перед стартом уборки.')
       return
     }
 
@@ -599,7 +611,7 @@ function App() {
     try {
       const result = await api<{ game: GameRecord; state: ApiState }>('/api/games', {
         body: JSON.stringify({
-          players: players.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
+          players: gamePlayers.map((player) => ({ ...player, email: normalizeEmail(player.email) })),
           winnerEmail,
           roundMinutes,
           elapsedSeconds,
@@ -623,6 +635,14 @@ function App() {
           <p className="eyebrow">Weekend Cleanup Quest</p>
           <h1>Уборка выходного дня</h1>
           <p className="status-line">{status}</p>
+          <label className="pair-email-label">
+            Введите почту, чтобы сохранить или загрузить игру
+            <input
+              placeholder="family@example.com"
+              value={pairEmail}
+              onChange={(event) => setPairEmail(event.target.value)}
+            />
+          </label>
         </div>
         <button className="pixel-button alt" type="button" onClick={toggleMusic}>
           {musicOn ? 'Музыка: ON' : 'Музыка: OFF'}
@@ -655,7 +675,7 @@ function App() {
           <aside className="pixel-panel stats-panel">
             <div className="panel-title">
               <span>★</span>
-              <h2>Кто круче в паре</h2>
+              <h2>Рейтинг прошлых игр</h2>
             </div>
             {currentPairBoard ? (
               <div className="pair-stats">
@@ -663,9 +683,9 @@ function App() {
                 <p>
                   Общий счёт: {currentPairBoard.totalScore} · Закрыто дел: {currentPairBoard.totalChores}
                 </p>
-                {players.map((player) => (
-                  <p key={player.email}>
-                    {player.name}: побед {currentPairBoard.wins[normalizeEmail(player.email)] || 0}
+                {players.map((player, index) => (
+                  <p key={index}>
+                    {player.name}: побед {currentPairBoard.wins[normalizeEmail(gamePlayers[index as 0 | 1].email)] || 0}
                   </p>
                 ))}
               </div>
@@ -717,10 +737,10 @@ function App() {
             onUpdateItem={updateItem}
           />
 
-          <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} stats={choreStats} players={players} />
+          <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} stats={choreStats} players={gamePlayers} />
 
           <article className="pixel-panel start-card">
-            <h2>Готовы к рейду?</h2>
+            <h2>Готовы к уборке?</h2>
             <p>
               Выбрано поддел: <strong>{selectedTasks.length}</strong>. Можно распределить целую категорию, а игра сама
               разорвёт её, если лимит времени не даёт отдать всё одному.
@@ -1078,14 +1098,6 @@ function ProfileEditor({
     <div className="player-editor">
       <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
       <label>
-        Почта профиля {index + 1}
-        <input
-          placeholder="friend@example.com"
-          value={player.email}
-          onChange={(event) => onUpdatePlayer(index, { email: event.target.value })}
-        />
-      </label>
-      <label>
         Имя героя
         <input value={player.name} onChange={(event) => onUpdatePlayer(index, { name: event.target.value })} />
       </label>
@@ -1101,7 +1113,7 @@ function ProfileEditor({
           <option value="">профили на сервере</option>
           {profiles.map((profile) => (
             <option key={profile.email} value={profile.email}>
-              {profile.name} · {profile.email}
+              {profile.name}
             </option>
           ))}
         </select>
