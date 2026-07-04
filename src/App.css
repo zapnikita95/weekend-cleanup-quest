@@ -1332,6 +1332,18 @@ label {
   box-shadow: 3px 3px 0 var(--ink);
 }
 
+.sprite-avatar.ghost {
+  background: linear-gradient(145deg, #4a4063, #2f2848);
+}
+
+.sprite-avatar.ghost img {
+  filter: drop-shadow(0 0 1px rgba(31, 24, 61, 0.85));
+}
+
+.avatar-choice.active .sprite-avatar.ghost {
+  background: linear-gradient(145deg, #5a4f78, #3d3558);
+}
+
 .avatar-choice .sprite-avatar.small {
   width: 100%;
   height: auto;

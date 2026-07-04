@@ -2469,7 +2469,7 @@ function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; ava
 
   if (spriteAvatarSet.has(avatar)) {
     return (
-      <div className={small ? 'sprite-avatar small' : 'sprite-avatar'} aria-hidden="true">
+      <div className={small ? `sprite-avatar ${avatar} small` : `sprite-avatar ${avatar}`} aria-hidden="true">
         <img alt="" src={`/avatars/${avatar}.svg`} />
       </div>
     )

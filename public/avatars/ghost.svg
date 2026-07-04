@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
-  <rect width="16" height="16" fill="transparent"/>
-  <rect x="3" y="2" width="10" height="9" fill="#f8f7ff"/>
-  <rect x="2" y="4" width="1" height="3" fill="#cdb4db"/>
-  <rect x="13" y="4" width="1" height="3" fill="#cdb4db"/>
+  <rect width="16" height="16" fill="#3d3558"/>
+  <rect x="2" y="1" width="12" height="11" fill="#5c5470"/>
+  <rect x="3" y="2" width="10" height="9" fill="#ece8ff"/>
+  <rect x="2" y="4" width="1" height="3" fill="#b8b0d8"/>
+  <rect x="13" y="4" width="1" height="3" fill="#b8b0d8"/>
   <rect x="5" y="5" width="2" height="2" fill="#1f183d"/>
   <rect x="9" y="5" width="2" height="2" fill="#1f183d"/>
-  <rect x="6" y="8" width="4" height="1" fill="#b8b2d8"/>
-  <rect x="4" y="11" width="8" height="4" fill="#f8f7ff"/>
+  <rect x="6" y="8" width="4" height="1" fill="#8a82b0"/>
+  <rect x="4" y="11" width="8" height="4" fill="#ece8ff"/>
   <rect x="5" y="12" width="2" height="2" fill="#cdb4db"/>
   <rect x="9" y="12" width="2" height="2" fill="#cdb4db"/>
-  <rect x="4" y="13" width="2" height="2" fill="#f8f7ff"/><rect x="7" y="14" width="2" height="1" fill="#f8f7ff"/><rect x="10" y="13" width="2" height="2" fill="#f8f7ff"/>
+  <rect x="4" y="13" width="2" height="2" fill="#ece8ff"/>
+  <rect x="7" y="14" width="2" height="1" fill="#ece8ff"/>
+  <rect x="10" y="13" width="2" height="2" fill="#ece8ff"/>
+  <rect x="3" y="2" width="10" height="1" fill="#5c5470"/>
+  <rect x="2" y="3" width="1" height="8" fill="#5c5470"/>
+  <rect x="13" y="3" width="1" height="8" fill="#5c5470"/>
+  <rect x="3" y="11" width="10" height="1" fill="#5c5470"/>
 </svg>

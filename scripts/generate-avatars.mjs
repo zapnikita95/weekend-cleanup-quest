@@ -20,9 +20,9 @@ const palette = {
   slime: { body: '#80ed99', accent: '#b7efc5', detail: '#38a3a5', eye: '#1f183d' },
 }
 
-const draw = (colors, extras = '') => `<?xml version="1.0" encoding="UTF-8"?>
+const draw = (colors, extras = '', bg = 'transparent') => `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
-  <rect width="16" height="16" fill="transparent"/>
+  <rect width="16" height="16" fill="${bg}"/>
   <rect x="3" y="2" width="10" height="9" fill="${colors.body}"/>
   <rect x="2" y="4" width="1" height="3" fill="${colors.accent}"/>
   <rect x="13" y="4" width="1" height="3" fill="${colors.accent}"/>
@@ -42,7 +42,7 @@ const extras = {
   wizard: '<rect x="3" y="0" width="10" height="2" fill="#f6e05e"/><rect x="5" y="0" width="6" height="1" fill="#5a67d8"/>',
   duck: '<rect x="7" y="8" width="4" height="2" fill="#ff922b"/>',
   robot: '<rect x="4" y="0" width="8" height="2" fill="#457b9d"/><rect x="6" y="1" width="1" height="1" fill="#caf0f8"/><rect x="9" y="1" width="1" height="1" fill="#caf0f8"/>',
-  ghost: '<rect x="4" y="13" width="2" height="2" fill="#f8f7ff"/><rect x="7" y="14" width="2" height="1" fill="#f8f7ff"/><rect x="10" y="13" width="2" height="2" fill="#f8f7ff"/>',
+  ghost: '<rect x="4" y="13" width="2" height="2" fill="#ece8ff"/><rect x="7" y="14" width="2" height="1" fill="#ece8ff"/><rect x="10" y="13" width="2" height="2" fill="#ece8ff"/><rect x="2" y="1" width="12" height="11" fill="#5c5470"/><rect x="3" y="2" width="10" height="1" fill="#5c5470"/><rect x="2" y="3" width="1" height="8" fill="#5c5470"/><rect x="13" y="3" width="1" height="8" fill="#5c5470"/><rect x="3" y="11" width="10" height="1" fill="#5c5470"/>',
   dragon: '<rect x="3" y="1" width="2" height="2" fill="#ef476f"/><rect x="11" y="1" width="2" height="2" fill="#ef476f"/>',
   ninja: '<rect x="4" y="4" width="8" height="2" fill="#111320"/>',
   queen: '<rect x="3" y="0" width="10" height="2" fill="#ffc8dd"/><rect x="5" y="0" width="6" height="1" fill="#f6e05e"/>',
@@ -50,7 +50,8 @@ const extras = {
 }
 
 for (const [name, colors] of Object.entries(palette)) {
-  writeFileSync(join(root, `${name}.svg`), draw(colors, extras[name] || ''))
+  const bg = name === 'ghost' ? '#3d3558' : 'transparent'
+  writeFileSync(join(root, `${name}.svg`), draw(colors, extras[name] || '', bg))
 }
 
 writeFileSync(
