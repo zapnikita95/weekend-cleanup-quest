@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
-type Phase = 'setup' | 'play' | 'results'
+type Phase = 'setup' | 'play' | 'rating' | 'ceremony'
 
 type Player = {
   email: string
@@ -16,7 +16,7 @@ type Profile = Player & {
   updatedAt: string
 }
 
-type Chore = {
+type ChoreTask = {
   id: string
   title: string
   minutes: number
@@ -24,12 +24,23 @@ type Chore = {
   enabled: boolean
 }
 
-type AssignedChore = Chore & {
+type ChoreGroup = {
+  id: string
+  title: string
+  enabled: boolean
+  children: ChoreTask[]
+}
+
+type ChoreItem = ChoreTask | ChoreGroup
+
+type AssignedChore = ChoreTask & {
   assignedTo: 0 | 1
   completed: boolean
   completedAt?: number
   actualMinutes?: number
   partnerRating: number
+  parentId?: string
+  parentTitle?: string
 }
 
 type CompletedChore = AssignedChore & {
@@ -54,6 +65,7 @@ type GameRecord = {
   roundMinutes: number
   elapsedSeconds: number
   scores: (PlayerScore & { email: string })[]
+  chores?: AssignedChore[]
   finishedAt: string
 }
 
@@ -73,6 +85,13 @@ type ApiState = {
   leaderboard: PairLeaderboard[]
 }
 
+type ChoreStat = {
+  title: string
+  total: number
+  avgMinutes: number
+  byPlayer: Record<string, number>
+}
+
 const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
 
 const defaultPlayers: [Player, Player] = [
@@ -80,15 +99,32 @@ const defaultPlayers: [Player, Player] = [
   { email: 'love@example.com', name: 'Любимая', avatar: 'cat' },
 ]
 
-const defaultChores: Chore[] = [
-  { id: 'dishes', title: 'Помыть посуду', minutes: 15, difficulty: 'normal', enabled: true },
-  { id: 'kitchen', title: 'Протереть кухню', minutes: 20, difficulty: 'normal', enabled: true },
-  { id: 'vacuum', title: 'Пропылесосить', minutes: 25, difficulty: 'normal', enabled: true },
-  { id: 'bathroom', title: 'Ванная комната', minutes: 35, difficulty: 'hard', enabled: true },
-  { id: 'laundry', title: 'Разобрать стирку', minutes: 20, difficulty: 'easy', enabled: true },
-  { id: 'wardrobe', title: 'Навести порядок в шкафу', minutes: 30, difficulty: 'hard', enabled: true },
-  { id: 'trash', title: 'Мусор и пакеты', minutes: 10, difficulty: 'easy', enabled: true },
-  { id: 'dust', title: 'Вытереть пыль', minutes: 20, difficulty: 'normal', enabled: true },
+const task = (id: string, title: string, minutes: number, difficulty: Difficulty = 'normal'): ChoreTask => ({
+  id,
+  title,
+  minutes,
+  difficulty,
+  enabled: true,
+})
+
+const defaultChores: ChoreItem[] = [
+  task('dishes', 'Помыть посуду', 15),
+  {
+    id: 'bathroom-group',
+    title: 'Ванная комната',
+    enabled: true,
+    children: [
+      task('bathroom-tub', 'Помыть ванную', 25, 'hard'),
+      task('bathroom-sink', 'Раковина и зеркало', 15),
+      task('bathroom-bottles', 'Убрать баночки', 10, 'easy'),
+    ],
+  },
+  task('kitchen', 'Протереть кухню', 20),
+  task('vacuum', 'Пропылесосить', 25),
+  task('laundry', 'Разобрать стирку', 20, 'easy'),
+  task('wardrobe', 'Навести порядок в шкафу', 30, 'hard'),
+  task('trash', 'Мусор и пакеты', 10, 'easy'),
+  task('dust', 'Вытереть пыль', 20),
 ]
 
 const emptyState: ApiState = { profiles: [], games: [], leaderboard: [] }
@@ -106,8 +142,10 @@ const difficultyBonus: Record<Difficulty, number> = {
 }
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
-
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
+const isGroup = (item: ChoreItem): item is ChoreGroup => 'children' in item
+const isCompleted = (chore: AssignedChore): chore is CompletedChore =>
+  chore.completed && typeof chore.completedAt === 'number'
 
 const shuffle = <T,>(items: T[]) => {
   const copy = [...items]
@@ -129,9 +167,6 @@ const formatDate = (value: string) =>
     new Date(value),
   )
 
-const isCompleted = (chore: AssignedChore): chore is CompletedChore =>
-  chore.completed && typeof chore.completedAt === 'number'
-
 const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
     ...options,
@@ -141,10 +176,77 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
     },
   })
   const payload = await response.json()
-  if (!response.ok) {
-    throw new Error(payload.error || 'API error')
-  }
+  if (!response.ok) throw new Error(payload.error || 'API error')
   return payload
+}
+
+const normalizeStoredChores = (items: unknown): ChoreItem[] => {
+  if (!Array.isArray(items)) return defaultChores
+  return items.map((item: any) => {
+    if (Array.isArray(item.children)) {
+      return {
+        id: String(item.id || makeId()),
+        title: String(item.title || 'Категория'),
+        enabled: item.enabled !== false,
+        children: item.children.map((child: any) => ({
+          id: String(child.id || makeId()),
+          title: String(child.title || 'Поддело'),
+          minutes: Number(child.minutes || 10),
+          difficulty: (child.difficulty || 'normal') as Difficulty,
+          enabled: child.enabled !== false,
+        })),
+      }
+    }
+    return {
+      id: String(item.id || makeId()),
+      title: String(item.title || 'Дело'),
+      minutes: Number(item.minutes || 10),
+      difficulty: (item.difficulty || 'normal') as Difficulty,
+      enabled: item.enabled !== false,
+    }
+  })
+}
+
+const getAssignableTasks = (item: ChoreItem): AssignedChore[] => {
+  if (!item.enabled) return []
+  if (!isGroup(item)) {
+    return [{ ...item, assignedTo: 0, completed: false, partnerRating: 0 }]
+  }
+  return item.children
+    .filter((child) => child.enabled)
+    .map((child) => ({
+      ...child,
+      assignedTo: 0,
+      completed: false,
+      partnerRating: 0,
+      parentId: item.id,
+      parentTitle: item.title,
+    }))
+}
+
+const computeChoreStats = (games: GameRecord[], players: [Player, Player]): ChoreStat[] => {
+  const map = new Map<string, { total: number; minutes: number; byPlayer: Record<string, number> }>()
+  for (const game of games) {
+    for (const chore of game.chores || []) {
+      if (!chore.completed) continue
+      const playerEmail = normalizeEmail(game.players[chore.assignedTo]?.email || '')
+      const key = chore.title.trim().toLowerCase()
+      const current = map.get(key) || { total: 0, minutes: 0, byPlayer: {} }
+      current.total += 1
+      current.minutes += Number(chore.actualMinutes || chore.minutes || 0)
+      current.byPlayer[playerEmail] = (current.byPlayer[playerEmail] || 0) + 1
+      map.set(key, current)
+    }
+  }
+
+  return [...map.entries()]
+    .map(([title, stat]) => ({
+      title,
+      total: stat.total,
+      avgMinutes: stat.total ? Math.round(stat.minutes / stat.total) : 0,
+      byPlayer: Object.fromEntries(players.map((player) => [normalizeEmail(player.email), stat.byPlayer[normalizeEmail(player.email)] || 0])),
+    }))
+    .sort((a, b) => b.total - a.total)
 }
 
 function App() {
@@ -152,13 +254,11 @@ function App() {
     const saved = window.localStorage.getItem('wcq-players')
     return saved ? JSON.parse(saved) : defaultPlayers
   })
-  const [chores, setChores] = useState<Chore[]>(() => {
-    const saved = window.localStorage.getItem('wcq-chores')
-    return saved ? JSON.parse(saved) : defaultChores
-  })
+  const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(JSON.parse(window.localStorage.getItem('wcq-chores') || 'null')))
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
   const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
   const [newChore, setNewChore] = useState({ title: '', minutes: 15, difficulty: 'normal' as Difficulty })
+  const [newCategoryTitle, setNewCategoryTitle] = useState('')
   const [roundMinutes, setRoundMinutes] = useState(120)
   const [phase, setPhase] = useState<Phase>('setup')
   const [assigned, setAssigned] = useState<AssignedChore[]>([])
@@ -171,8 +271,7 @@ function App() {
 
   const loadState = useCallback(async () => {
     try {
-      const state = await api<ApiState>('/api/state')
-      setRemoteState(state)
+      setRemoteState(await api<ApiState>('/api/state'))
     } catch (error) {
       setStatus(error instanceof Error ? `Сервер истории недоступен: ${error.message}` : 'Сервер истории недоступен.')
     }
@@ -195,7 +294,7 @@ function App() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const selectedChores = useMemo(() => chores.filter((chore) => chore.enabled), [chores])
+  const selectedTasks = useMemo(() => chores.flatMap(getAssignableTasks), [chores])
   const elapsedSeconds = roundStartedAt ? Math.max(0, Math.floor((now - roundStartedAt) / 1000)) : 0
   const playerPlans = useMemo(
     () => [assigned.filter((chore) => chore.assignedTo === 0), assigned.filter((chore) => chore.assignedTo === 1)] as const,
@@ -204,6 +303,7 @@ function App() {
   const currentPairKey = players.map((player) => normalizeEmail(player.email)).sort().join('|')
   const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
   const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
+  const choreStats = useMemo(() => computeChoreStats(currentPairGames, players), [currentPairGames, players])
 
   const scoreFor = useCallback(
     (playerIndex: 0 | 1): PlayerScore => {
@@ -221,6 +321,10 @@ function App() {
   )
 
   const playerScores = [scoreFor(0), scoreFor(1)] as const
+  const winner =
+    playerScores[0].total === playerScores[1].total ? null : playerScores[0].total > playerScores[1].total ? 0 : 1
+  const winnerEmail = winner === null ? '' : normalizeEmail(players[winner].email)
+  const allDone = assigned.length > 0 && assigned.every((chore) => chore.completed)
 
   const updatePlayer = (index: 0 | 1, patch: Partial<Player>) => {
     setPlayers((current) => {
@@ -290,8 +394,45 @@ function App() {
     setNewChore({ title: '', minutes: 15, difficulty: 'normal' })
   }
 
-  const updateChore = (id: string, patch: Partial<Chore>) => {
-    setChores((current) => current.map((chore) => (chore.id === id ? { ...chore, ...patch } : chore)))
+  const addCategory = () => {
+    const title = newCategoryTitle.trim()
+    if (!title) return
+    setChores((current) => [...current, { id: makeId(), title, enabled: true, children: [] }])
+    setNewCategoryTitle('')
+  }
+
+  const addChild = (groupId: string) => {
+    setChores((current) =>
+      current.map((item) =>
+        isGroup(item) && item.id === groupId
+          ? { ...item, children: [...item.children, task(makeId(), 'Новое поддело', 10, 'normal')] }
+          : item,
+      ),
+    )
+  }
+
+  const updateItem = (id: string, patch: Partial<ChoreTask | ChoreGroup>, childId?: string) => {
+    setChores((current) =>
+      current.map((item) => {
+        if (!childId && item.id === id) return { ...item, ...patch } as ChoreItem
+        if (childId && isGroup(item) && item.id === id) {
+          return {
+            ...item,
+            children: item.children.map((child) => (child.id === childId ? { ...child, ...patch } : child)),
+          }
+        }
+        return item
+      }),
+    )
+  }
+
+  const deleteItem = (id: string, childId?: string) => {
+    setChores((current) => {
+      if (!childId) return current.filter((item) => item.id !== id)
+      return current.map((item) =>
+        isGroup(item) && item.id === id ? { ...item, children: item.children.filter((child) => child.id !== childId) } : item,
+      )
+    })
   }
 
   const startRound = () => {
@@ -300,23 +441,36 @@ function App() {
       return
     }
 
-    const pools = shuffle(selectedChores)
     const totals = [0, 0]
     const nextAssigned: AssignedChore[] = []
 
-    for (const chore of pools) {
-      const firstPlayer = totals[0] <= totals[1] ? 0 : 1
-      const secondPlayer = firstPlayer === 0 ? 1 : 0
-      const target =
-        totals[firstPlayer] + chore.minutes <= roundMinutes
-          ? firstPlayer
-          : totals[secondPlayer] + chore.minutes <= roundMinutes
-            ? secondPlayer
-            : null
-
-      if (target === null) continue
+    const assignTask = (chore: AssignedChore, preferred?: 0 | 1) => {
+      const order: (0 | 1)[] =
+        preferred !== undefined ? [preferred, preferred === 0 ? 1 : 0] : totals[0] <= totals[1] ? [0, 1] : [1, 0]
+      const target = order.find((playerIndex) => totals[playerIndex] + chore.minutes <= roundMinutes)
+      if (target === undefined) return false
       totals[target] += chore.minutes
-      nextAssigned.push({ ...chore, assignedTo: target as 0 | 1, completed: false, partnerRating: 0 })
+      nextAssigned.push({ ...chore, assignedTo: target })
+      return true
+    }
+
+    for (const item of shuffle(chores.filter((chore) => chore.enabled))) {
+      const tasks = getAssignableTasks(item)
+      if (!tasks.length) continue
+
+      if (isGroup(item)) {
+        const total = tasks.reduce((sum, chore) => sum + chore.minutes, 0)
+        const order: (0 | 1)[] = totals[0] <= totals[1] ? [0, 1] : [1, 0]
+        const wholeTarget = order.find((playerIndex) => totals[playerIndex] + total <= roundMinutes)
+        if (wholeTarget !== undefined) {
+          tasks.forEach((chore) => assignTask(chore, wholeTarget))
+        } else {
+          shuffle(tasks).forEach((chore) => assignTask(chore))
+        }
+        continue
+      }
+
+      assignTask(tasks[0])
     }
 
     if (!nextAssigned.length) {
@@ -416,12 +570,6 @@ function App() {
     }
     loop()
   }
-
-  const finishRound = () => setPhase('results')
-  const allDone = assigned.length > 0 && assigned.every((chore) => chore.completed)
-  const winner =
-    playerScores[0].total === playerScores[1].total ? null : playerScores[0].total > playerScores[1].total ? 0 : 1
-  const winnerEmail = winner === null ? '' : normalizeEmail(players[winner].email)
 
   const saveGame = async () => {
     try {
@@ -529,79 +677,31 @@ function App() {
                 onChange={(event) => setRoundMinutes(Number(event.target.value))}
               />
             </label>
-            <p className="hint">Рандом берёт выбранные дела и старается не превысить лимит времени для каждого игрока.</p>
+            <p className="hint">Категория пытается уйти одному игроку целиком, но если не влезает по времени — дробится.</p>
           </article>
 
-          <article className="pixel-panel chores-panel">
-            <div className="panel-title">
-              <span>3</span>
-              <h2>Общий список дел</h2>
-            </div>
-            <div className="add-chore">
-              <input
-                placeholder="Например: разобрать балкон"
-                value={newChore.title}
-                onChange={(event) => setNewChore((current) => ({ ...current, title: event.target.value }))}
-              />
-              <input
-                aria-label="Минуты"
-                min={5}
-                step={5}
-                type="number"
-                value={newChore.minutes}
-                onChange={(event) => setNewChore((current) => ({ ...current, minutes: Number(event.target.value) }))}
-              />
-              <select
-                value={newChore.difficulty}
-                onChange={(event) => setNewChore((current) => ({ ...current, difficulty: event.target.value as Difficulty }))}
-              >
-                <option value="easy">легко</option>
-                <option value="normal">обычно</option>
-                <option value="hard">сложно</option>
-              </select>
-              <button className="pixel-button" type="button" onClick={addChore}>
-                Добавить
-              </button>
-            </div>
-            <div className="chore-list">
-              {chores.map((chore) => (
-                <label className="chore-row" key={chore.id}>
-                  <input
-                    checked={chore.enabled}
-                    type="checkbox"
-                    onChange={(event) => updateChore(chore.id, { enabled: event.target.checked })}
-                  />
-                  <span>{chore.title}</span>
-                  <input
-                    className="mini-input"
-                    min={5}
-                    step={5}
-                    type="number"
-                    value={chore.minutes}
-                    onChange={(event) => updateChore(chore.id, { minutes: Number(event.target.value) })}
-                  />
-                  <select
-                    value={chore.difficulty}
-                    onChange={(event) => updateChore(chore.id, { difficulty: event.target.value as Difficulty })}
-                  >
-                    <option value="easy">легко</option>
-                    <option value="normal">обычно</option>
-                    <option value="hard">сложно</option>
-                  </select>
-                </label>
-              ))}
-            </div>
-          </article>
+          <ChoreLibrary
+            chores={chores}
+            newCategoryTitle={newCategoryTitle}
+            newChore={newChore}
+            onAddCategory={addCategory}
+            onAddChild={addChild}
+            onAddChore={addChore}
+            onDeleteItem={deleteItem}
+            onNewCategoryTitle={setNewCategoryTitle}
+            onNewChore={setNewChore}
+            onUpdateItem={updateItem}
+          />
 
-          <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} />
+          <Dashboard history={currentPairGames} leaderboard={remoteState.leaderboard} stats={choreStats} players={players} />
 
           <article className="pixel-panel start-card">
             <h2>Готовы к рейду?</h2>
             <p>
-              Выбрано дел: <strong>{selectedChores.length}</strong>. За дело идут базовые очки, минуты, бонус сложности,
-              скорость, серия выполнений и оценка партнёра.
+              Выбрано поддел: <strong>{selectedTasks.length}</strong>. Можно распределить целую категорию, а игра сама
+              разорвёт её, если лимит времени не даёт отдать всё одному.
             </p>
-            <button className="pixel-button start" disabled={!selectedChores.length} type="button" onClick={startRound}>
+            <button className="pixel-button start" disabled={!selectedTasks.length} type="button" onClick={startRound}>
               Сгенерировать уборку
             </button>
           </article>
@@ -619,8 +719,8 @@ function App() {
               <p className="eyebrow">Горячие клавиши</p>
               <strong>Space / Enter</strong>
             </div>
-            <button className="pixel-button" type="button" onClick={finishRound}>
-              Завершить раунд
+            <button className="pixel-button" type="button" onClick={() => setPhase('rating')}>
+              К оценкам
             </button>
           </div>
 
@@ -636,7 +736,7 @@ function App() {
                     <div>
                       <h2>{players[playerIndex as 0 | 1].name || `Игрок ${playerIndex + 1}`}</h2>
                       <p>
-                        {done}/{plan.length} дел · {totalMinutes} мин · {playerScores[playerIndex as 0 | 1].total} очков
+                        {done}/{plan.length} дел · {totalMinutes} мин · текущие очки {playerScores[playerIndex as 0 | 1].total}
                       </p>
                     </div>
                   </div>
@@ -666,7 +766,7 @@ function App() {
                         }}
                       >
                         <span>{chore.completed ? '✓' : '□'}</span>
-                        <strong>{chore.title}</strong>
+                        <strong>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</strong>
                         <small>
                           {chore.minutes} мин · {difficultyLabel[chore.difficulty]}
                         </small>
@@ -681,7 +781,7 @@ function App() {
           {allDone && (
             <div className="pixel-panel all-done">
               <h2>Все дела закрыты!</h2>
-              <button className="pixel-button start" type="button" onClick={finishRound}>
+              <button className="pixel-button start" type="button" onClick={() => setPhase('rating')}>
                 К оценкам партнёра
               </button>
             </div>
@@ -689,55 +789,50 @@ function App() {
         </section>
       )}
 
-      {phase === 'results' && (
+      {phase === 'rating' && (
         <section className="results-screen">
-          <article className="pixel-panel winner-card">
-            <p className="eyebrow">Финал</p>
-            <h2>{winner === null ? 'Двойная победа!' : `Президент уборки: ${players[winner].name}`}</h2>
-            <p>Проигравших нет: второе место выдаёт президенту приз, а дом получает +100 к уюту.</p>
+          <article className="pixel-panel winner-card calm">
+            <p className="eyebrow">Сначала оценки</p>
+            <h2>Поставьте друг другу оценки</h2>
+            <p>Итоги ещё скрыты. Когда оба проставили оценки, нажмите “Подвести итоги”.</p>
           </article>
-
-          <div className="score-grid">
-            {[0, 1].map((playerIndex) => (
-              <article className="pixel-panel score-card" key={playerIndex}>
-                <div className="player-card">
-                  <PixelAvatar
-                    avatar={players[playerIndex as 0 | 1].avatar}
-                    avatarUrl={players[playerIndex as 0 | 1].avatarUrl}
-                    small
-                  />
-                  <h2>{players[playerIndex as 0 | 1].name}</h2>
-                </div>
-                <strong className="big-score">{playerScores[playerIndex as 0 | 1].total}</strong>
-                <p>
-                  Дела: {playerScores[playerIndex as 0 | 1].count} · Скорость: +{playerScores[playerIndex as 0 | 1].speed} ·
-                  Серия: +{playerScores[playerIndex as 0 | 1].streak}
-                </p>
-                <div className="rating-list">
-                  {playerPlans[playerIndex as 0 | 1]
-                    .filter(isCompleted)
-                    .map((chore) => (
-                      <div className="rating-row" key={chore.id}>
-                        <span>{chore.title}</span>
-                        <div>
-                          {[0, 1, 2, 3].map((rating) => (
-                            <button
-                              className={chore.partnerRating === rating ? 'rating active' : 'rating'}
-                              key={rating}
-                              type="button"
-                              onClick={() => rateChore(chore.id, playerIndex as 0 | 1, rating)}
-                            >
-                              {rating}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </article>
-            ))}
+          <ScoreCards
+            assigned={assigned}
+            playerPlans={playerPlans}
+            players={players}
+            playerScores={playerScores}
+            onRateChore={rateChore}
+          />
+          <div className="actions">
+            <button className="pixel-button start ceremony-button" type="button" onClick={() => setPhase('ceremony')}>
+              Подвести итоги
+            </button>
+            <button className="pixel-button" type="button" onClick={() => setPhase('play')}>
+              Вернуться к списку
+            </button>
           </div>
+        </section>
+      )}
 
+      {phase === 'ceremony' && (
+        <section className="results-screen ceremony-screen">
+          <article className="pixel-panel certificate">
+            <div className="confetti" />
+            <p className="eyebrow">Грамота победителя</p>
+            <h2>{winner === null ? 'Суперничья уборки' : `Президент уборки: ${players[winner].name}`}</h2>
+            <p className="certificate-name">{winner === null ? `${players[0].name} + ${players[1].name}` : players[winner].name}</p>
+            <p>
+              За героическую битву с пылью, баночками, посудой и хаосом. Дом получает +100 к уюту, а победитель получает
+              заслуженный приз.
+            </p>
+          </article>
+          <ScoreCards
+            assigned={assigned}
+            playerPlans={playerPlans}
+            players={players}
+            playerScores={playerScores}
+            onRateChore={rateChore}
+          />
           <div className="actions">
             <button className="pixel-button start" disabled={Boolean(savedGameId)} type="button" onClick={saveGame}>
               {savedGameId ? 'Игра сохранена' : 'Сохранить в историю'}
@@ -749,6 +844,192 @@ function App() {
         </section>
       )}
     </main>
+  )
+}
+
+function ChoreLibrary({
+  chores,
+  newCategoryTitle,
+  newChore,
+  onAddCategory,
+  onAddChild,
+  onAddChore,
+  onDeleteItem,
+  onNewCategoryTitle,
+  onNewChore,
+  onUpdateItem,
+}: {
+  chores: ChoreItem[]
+  newCategoryTitle: string
+  newChore: { title: string; minutes: number; difficulty: Difficulty }
+  onAddCategory: () => void
+  onAddChild: (groupId: string) => void
+  onAddChore: () => void
+  onDeleteItem: (id: string, childId?: string) => void
+  onNewCategoryTitle: (title: string) => void
+  onNewChore: (chore: { title: string; minutes: number; difficulty: Difficulty }) => void
+  onUpdateItem: (id: string, patch: Partial<ChoreTask | ChoreGroup>, childId?: string) => void
+}) {
+  return (
+    <article className="pixel-panel chores-panel">
+      <div className="panel-title">
+        <span>3</span>
+        <h2>Общий список дел</h2>
+      </div>
+      <div className="add-chore">
+        <input
+          placeholder="Одиночное дело"
+          value={newChore.title}
+          onChange={(event) => onNewChore({ ...newChore, title: event.target.value })}
+        />
+        <input
+          aria-label="Минуты"
+          min={5}
+          step={5}
+          type="number"
+          value={newChore.minutes}
+          onChange={(event) => onNewChore({ ...newChore, minutes: Number(event.target.value) })}
+        />
+        <select value={newChore.difficulty} onChange={(event) => onNewChore({ ...newChore, difficulty: event.target.value as Difficulty })}>
+          <option value="easy">легко</option>
+          <option value="normal">обычно</option>
+          <option value="hard">сложно</option>
+        </select>
+        <button className="pixel-button" type="button" onClick={onAddChore}>
+          Добавить дело
+        </button>
+      </div>
+      <div className="add-category">
+        <input
+          placeholder="Категория, например: ванная комната"
+          value={newCategoryTitle}
+          onChange={(event) => onNewCategoryTitle(event.target.value)}
+        />
+        <button className="pixel-button alt" type="button" onClick={onAddCategory}>
+          Добавить категорию
+        </button>
+      </div>
+      <div className="chore-list">
+        {chores.map((item) =>
+          isGroup(item) ? (
+            <div className="chore-group" key={item.id}>
+              <div className="chore-row group-row">
+                <input checked={item.enabled} type="checkbox" onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked })} />
+                <input value={item.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value })} />
+                <span>{item.children.reduce((sum, child) => sum + (child.enabled ? child.minutes : 0), 0)} мин</span>
+                <button className="tiny-button" type="button" onClick={() => onAddChild(item.id)}>
+                  + поддело
+                </button>
+                <button className="tiny-button danger" type="button" onClick={() => onDeleteItem(item.id)}>
+                  удалить
+                </button>
+              </div>
+              {item.children.map((child) => (
+                <div className="chore-row child-row" key={child.id}>
+                  <input
+                    checked={child.enabled}
+                    type="checkbox"
+                    onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked }, child.id)}
+                  />
+                  <input value={child.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value }, child.id)} />
+                  <input
+                    className="mini-input"
+                    min={5}
+                    step={5}
+                    type="number"
+                    value={child.minutes}
+                    onChange={(event) => onUpdateItem(item.id, { minutes: Number(event.target.value) }, child.id)}
+                  />
+                  <select value={child.difficulty} onChange={(event) => onUpdateItem(item.id, { difficulty: event.target.value as Difficulty }, child.id)}>
+                    <option value="easy">легко</option>
+                    <option value="normal">обычно</option>
+                    <option value="hard">сложно</option>
+                  </select>
+                  <button className="tiny-button danger" type="button" onClick={() => onDeleteItem(item.id, child.id)}>
+                    удалить
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="chore-row" key={item.id}>
+              <input checked={item.enabled} type="checkbox" onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked })} />
+              <input value={item.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value })} />
+              <input
+                className="mini-input"
+                min={5}
+                step={5}
+                type="number"
+                value={item.minutes}
+                onChange={(event) => onUpdateItem(item.id, { minutes: Number(event.target.value) })}
+              />
+              <select value={item.difficulty} onChange={(event) => onUpdateItem(item.id, { difficulty: event.target.value as Difficulty })}>
+                <option value="easy">легко</option>
+                <option value="normal">обычно</option>
+                <option value="hard">сложно</option>
+              </select>
+              <button className="tiny-button danger" type="button" onClick={() => onDeleteItem(item.id)}>
+                удалить
+              </button>
+            </div>
+          ),
+        )}
+      </div>
+    </article>
+  )
+}
+
+function ScoreCards({
+  assigned,
+  onRateChore,
+  playerPlans,
+  playerScores,
+  players,
+}: {
+  assigned: AssignedChore[]
+  onRateChore: (id: string, playerIndex: 0 | 1, rating: number) => void
+  playerPlans: readonly [AssignedChore[], AssignedChore[]]
+  playerScores: readonly [PlayerScore, PlayerScore]
+  players: [Player, Player]
+}) {
+  return (
+    <div className="score-grid">
+      {[0, 1].map((playerIndex) => (
+        <article className="pixel-panel score-card" key={playerIndex}>
+          <div className="player-card">
+            <PixelAvatar avatar={players[playerIndex as 0 | 1].avatar} avatarUrl={players[playerIndex as 0 | 1].avatarUrl} small />
+            <h2>{players[playerIndex as 0 | 1].name}</h2>
+          </div>
+          <strong className="big-score">{playerScores[playerIndex as 0 | 1].total}</strong>
+          <p>
+            Дела: {playerScores[playerIndex as 0 | 1].count} · Скорость: +{playerScores[playerIndex as 0 | 1].speed} ·
+            Оценки: +{playerScores[playerIndex as 0 | 1].partner}
+          </p>
+          <div className="rating-list">
+            {playerPlans[playerIndex as 0 | 1]
+              .filter(isCompleted)
+              .map((chore) => (
+                <div className="rating-row" key={`${chore.id}-${chore.assignedTo}`}>
+                  <span>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</span>
+                  <div>
+                    {[0, 1, 2, 3].map((rating) => (
+                      <button
+                        className={chore.partnerRating === rating ? 'rating active' : 'rating'}
+                        key={rating}
+                        type="button"
+                        onClick={() => onRateChore(chore.id, playerIndex as 0 | 1, rating)}
+                      >
+                        {rating}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            {!assigned.some((chore) => chore.assignedTo === playerIndex && chore.completed) && <p className="hint">Нет закрытых дел для оценки.</p>}
+          </div>
+        </article>
+      ))}
+    </div>
   )
 }
 
@@ -815,7 +1096,11 @@ function ProfileEditor({
       </div>
       <label className="upload-label">
         Своя аватарка
-        <input accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" type="file" onChange={(event) => onUploadAvatar(index, event.target.files?.[0] || null)} />
+        <input
+          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+          type="file"
+          onChange={(event) => onUploadAvatar(index, event.target.files?.[0] || null)}
+        />
       </label>
       <button className="pixel-button wide" type="button" onClick={() => onSaveProfile(index)}>
         Сохранить профиль
@@ -824,14 +1109,24 @@ function ProfileEditor({
   )
 }
 
-function Dashboard({ history, leaderboard }: { history: GameRecord[]; leaderboard: PairLeaderboard[] }) {
+function Dashboard({
+  history,
+  leaderboard,
+  players,
+  stats,
+}: {
+  history: GameRecord[]
+  leaderboard: PairLeaderboard[]
+  players: [Player, Player]
+  stats: ChoreStat[]
+}) {
   return (
     <article className="pixel-panel dashboard-panel">
       <div className="panel-title">
         <span>4</span>
-        <h2>История и лидерборд</h2>
+        <h2>История, дела и лидерборд</h2>
       </div>
-      <div className="dashboard-grid">
+      <div className="dashboard-grid three">
         <section>
           <h3>История текущей пары</h3>
           <div className="history-list">
@@ -844,6 +1139,21 @@ function Dashboard({ history, leaderboard }: { history: GameRecord[]; leaderboar
               </div>
             ))}
             {!history.length && <p className="hint">Сохранённых игр этой пары пока нет.</p>}
+          </div>
+        </section>
+        <section>
+          <h3>Кто что делает чаще</h3>
+          <div className="history-list">
+            {stats.slice(0, 8).map((stat) => (
+              <div className="history-row" key={stat.title}>
+                <strong>{stat.title}</strong>
+                <span>
+                  {players[0].name}: {stat.byPlayer[normalizeEmail(players[0].email)] || 0} · {players[1].name}:{' '}
+                  {stat.byPlayer[normalizeEmail(players[1].email)] || 0} · среднее {stat.avgMinutes} мин
+                </span>
+              </div>
+            ))}
+            {!stats.length && <p className="hint">Статистика дел появится после сохранённых игр.</p>}
           </div>
         </section>
         <section>

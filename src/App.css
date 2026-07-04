@@ -245,11 +245,19 @@ label {
   background: #fff;
 }
 
-.add-chore {
+.add-chore,
+.add-category {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 110px 150px auto;
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.add-chore {
+  grid-template-columns: minmax(220px, 1fr) 110px 150px auto;
+}
+
+.add-category {
+  grid-template-columns: minmax(220px, 1fr) auto;
 }
 
 .chore-list {
@@ -262,12 +270,30 @@ label {
 
 .chore-row {
   display: grid;
-  grid-template-columns: auto minmax(150px, 1fr) 92px 132px;
+  grid-template-columns: auto minmax(150px, 1fr) 92px 132px auto;
   align-items: center;
   gap: 10px;
   border: 3px solid var(--ink);
   background: rgba(255, 255, 255, 0.62);
   padding: 10px;
+}
+
+.chore-group {
+  display: grid;
+  gap: 8px;
+  border: 3px dashed rgba(31, 24, 61, 0.45);
+  background: rgba(102, 227, 255, 0.12);
+  padding: 10px;
+}
+
+.group-row {
+  grid-template-columns: auto minmax(160px, 1fr) 90px auto auto;
+  background: rgba(255, 217, 90, 0.42);
+}
+
+.child-row {
+  margin-left: 26px;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .chore-row input[type='checkbox'] {
@@ -278,6 +304,21 @@ label {
 
 .mini-input {
   min-width: 0;
+}
+
+.tiny-button {
+  border: 2px solid var(--ink);
+  background: var(--aqua);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px;
+  text-transform: uppercase;
+}
+
+.tiny-button.danger {
+  background: #ffb1b1;
 }
 
 .start-card {
@@ -381,10 +422,18 @@ label {
   background: linear-gradient(135deg, var(--sun), #fff4bd);
 }
 
+.winner-card.calm {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(214, 246, 255, 0.9));
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+}
+
+.dashboard-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .history-list {
@@ -451,6 +500,121 @@ label {
 
 .rating.active {
   background: var(--pink);
+}
+
+.ceremony-screen {
+  animation: ceremony-pop 700ms steps(4, end);
+}
+
+.certificate {
+  position: relative;
+  overflow: hidden;
+  padding: 34px 22px;
+  text-align: center;
+  background:
+    linear-gradient(90deg, rgba(255, 121, 184, 0.16), transparent 18%, transparent 82%, rgba(102, 227, 255, 0.18)),
+    linear-gradient(135deg, #fff5c7, #fffdf0);
+}
+
+.certificate::before,
+.certificate::after {
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  width: 18px;
+  content: '';
+  background: repeating-linear-gradient(0deg, var(--pink) 0 10px, var(--sun) 10px 20px, var(--aqua) 20px 30px);
+  border: 3px solid var(--ink);
+}
+
+.certificate::before {
+  left: 18px;
+}
+
+.certificate::after {
+  right: 18px;
+}
+
+.certificate h2 {
+  font-size: clamp(28px, 5vw, 58px);
+}
+
+.certificate-name {
+  display: inline-block;
+  margin: 4px auto 16px;
+  border: 4px solid var(--ink);
+  background: var(--sun);
+  color: var(--ink);
+  font-size: clamp(24px, 4vw, 44px);
+  font-weight: 900;
+  padding: 8px 18px;
+  transform: rotate(-1deg);
+  box-shadow: 6px 6px 0 var(--pink);
+}
+
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, var(--pink) 0 4px, transparent 5px),
+    radial-gradient(circle, var(--aqua) 0 4px, transparent 5px),
+    radial-gradient(circle, var(--sun) 0 4px, transparent 5px);
+  background-position:
+    10% 20%,
+    70% 30%,
+    40% 80%;
+  background-size:
+    90px 90px,
+    120px 120px,
+    75px 75px;
+  animation: confetti-rain 900ms steps(5, end) infinite;
+  opacity: 0.8;
+}
+
+.ceremony-button {
+  animation: button-glow 900ms steps(2, end) infinite;
+}
+
+@keyframes ceremony-pop {
+  from {
+    filter: saturate(0.4);
+    transform: scale(0.97);
+  }
+
+  to {
+    filter: saturate(1);
+    transform: scale(1);
+  }
+}
+
+@keyframes confetti-rain {
+  from {
+    background-position:
+      10% -20%,
+      70% -10%,
+      40% 0%;
+  }
+
+  to {
+    background-position:
+      10% 120%,
+      70% 110%,
+      40% 100%;
+  }
+}
+
+@keyframes button-glow {
+  0%,
+  100% {
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  50% {
+    box-shadow:
+      4px 4px 0 var(--ink),
+      0 0 0 6px var(--sun);
+  }
 }
 
 .pixel-avatar {
@@ -781,10 +945,15 @@ label {
   }
 
   .add-chore,
+  .add-category,
   .chore-row,
   .quest,
   .rating-row {
     grid-template-columns: 1fr;
+  }
+
+  .child-row {
+    margin-left: 0;
   }
 
   .quest small {
