@@ -48,6 +48,22 @@
   background: rgba(255, 250, 240, 0.92);
 }
 
+.email-load-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 8px;
+}
+
+.email-load-row input {
+  margin-top: 0;
+}
+
+.resume-button {
+  margin-top: 12px;
+}
+
 h1,
 h2,
 h3,
@@ -201,6 +217,12 @@ label {
   gap: 18px;
 }
 
+.battlefield:has(.player-board:only-child),
+.score-grid:has(.score-card:only-child) {
+  grid-template-columns: minmax(320px, 620px);
+  justify-content: center;
+}
+
 .mode-grid,
 .extra-grid {
   display: grid;
@@ -311,7 +333,7 @@ label {
 }
 
 .group-row {
-  grid-template-columns: auto minmax(160px, 1fr) 90px auto auto;
+  grid-template-columns: auto 42px 130px minmax(160px, 1fr) 90px auto auto;
   background: rgba(255, 217, 90, 0.42);
 }
 
@@ -321,9 +343,65 @@ label {
 }
 
 .chore-row input[type='checkbox'] {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   accent-color: var(--pink);
+}
+
+.room-icon {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--ink);
+  background:
+    linear-gradient(90deg, transparent 0 48%, rgba(31, 24, 61, 0.38) 48% 55%, transparent 55%),
+    var(--aqua);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.room-icon.bath {
+  background: linear-gradient(180deg, #fff 0 35%, #66e3ff 35% 75%, #2d72ff 75%);
+}
+
+.room-icon.kitchen {
+  background: linear-gradient(90deg, #ff8a3d 0 38%, #fff 38% 58%, #1f183d 58% 68%, #ffd95a 68%);
+}
+
+.room-icon.living {
+  background: linear-gradient(180deg, #b56cff 0 45%, #ff79b8 45% 72%, #1f183d 72%);
+}
+
+.room-icon.bedroom {
+  background: linear-gradient(180deg, #5354ff 0 45%, #fff4bd 45% 70%, #ff79b8 70%);
+}
+
+.room-icon.toilet {
+  background: linear-gradient(180deg, #f5f0ff 0 55%, #8fd0ff 55%);
+}
+
+.room-icon.hall {
+  background: linear-gradient(90deg, #ffd95a 0 25%, #fffaf0 25% 75%, #1f183d 75%);
+}
+
+.room-icon.wardrobe {
+  background: linear-gradient(90deg, #8b5a2b 0 45%, #ffd95a 45% 55%, #8b5a2b 55%);
+}
+
+.room-icon.storage {
+  background: linear-gradient(180deg, #b56cff 0 25%, #8b5a2b 25% 75%, #ffd95a 75%);
+}
+
+.room-icon.garden,
+.room-icon.outside {
+  background: linear-gradient(180deg, #66e3ff 0 45%, #54d66f 45% 75%, #1f8f45 75%);
+}
+
+.room-icon.dining {
+  background: linear-gradient(180deg, #fff4bd 0 40%, #8b5a2b 40% 55%, #ff8a3d 55%);
+}
+
+.room-icon.garage {
+  background: linear-gradient(180deg, #8fd0ff 0 35%, #33334f 35% 80%, #ffd95a 80%);
 }
 
 .mini-input {
@@ -386,7 +464,7 @@ label {
 .player-card {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 22px;
   margin-bottom: 16px;
   text-align: left;
 }
@@ -443,7 +521,7 @@ label {
 
 .quest {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   border: 3px solid var(--ink);
@@ -455,8 +533,9 @@ label {
 }
 
 .quest span {
-  font-size: 26px;
+  font-size: 34px;
   font-weight: 900;
+  line-height: 1;
 }
 
 .quest small {
@@ -1043,6 +1122,12 @@ label {
   padding: 12px;
 }
 
+.review-popup {
+  position: sticky;
+  top: 8px;
+  z-index: 3;
+}
+
 @media (max-width: 860px) {
   .topbar,
   .start-card {
@@ -1069,6 +1154,7 @@ label {
   .add-chore,
   .add-category,
   .chore-row,
+  .email-load-row,
   .quest,
   .rating-row {
     grid-template-columns: 1fr;

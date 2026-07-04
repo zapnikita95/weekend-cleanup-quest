@@ -30,6 +30,7 @@ type ChoreGroup = {
   id: string
   title: string
   enabled: boolean
+  icon?: string
   children: ChoreTask[]
 }
 
@@ -85,6 +86,7 @@ type PairLeaderboard = {
 }
 
 type ApiState = {
+  activeGames: ActiveGame[]
   profiles: Profile[]
   games: GameRecord[]
   leaderboard: PairLeaderboard[]
@@ -111,6 +113,7 @@ type ChoreStat = {
 }
 
 const avatarOptions = ['fox', 'cat', 'frog', 'robot', 'ghost', 'duck', 'wizard', 'dragon', 'ninja', 'alien', 'queen', 'slime']
+const roomIconOptions = ['bath', 'kitchen', 'living', 'bedroom', 'toilet', 'hall', 'wardrobe', 'storage', 'garden', 'outside', 'dining', 'garage']
 
 const defaultPlayers: [Player, Player] = [
   { email: 'nikita@example.com', name: 'Никита', avatar: 'fox' },
@@ -131,6 +134,7 @@ const defaultChores: ChoreItem[] = [
     id: 'bathroom-group',
     title: 'Ванная комната',
     enabled: true,
+    icon: 'bath',
     children: [
       task('bathroom-tub', 'Помыть ванную', 25, 'hard'),
       task('bathroom-sink', 'Раковина и зеркало', 15),
@@ -145,7 +149,7 @@ const defaultChores: ChoreItem[] = [
   task('dust', 'Вытереть пыль', 20),
 ]
 
-const emptyState: ApiState = { profiles: [], games: [], leaderboard: [] }
+const emptyState: ApiState = { activeGames: [], profiles: [], games: [], leaderboard: [] }
 
 const difficultyLabel: Record<Difficulty, string> = {
   easy: 'легко',
@@ -228,6 +232,7 @@ const normalizeStoredChores = (items: unknown): ChoreItem[] => {
         id: String(item.id || makeId()),
         title: String(item.title || 'Категория'),
         enabled: item.enabled !== false,
+        icon: String(item.icon || 'storage'),
         children: item.children.map((child: any) => ({
           id: String(child.id || makeId()),
           title: String(child.title || 'Поддело'),
@@ -294,10 +299,11 @@ function App() {
   if (mobileRoute) {
     return <MobilePlayerPage playerIndex={Number(mobileRoute[2]) as 0 | 1} sessionId={decodeURIComponent(mobileRoute[1])} />
   }
-  return <GameApp />
+  const gameRoute = window.location.pathname.match(/^\/game\/([^/]+)\/?$/)
+  return <GameApp initialGameId={gameRoute ? decodeURIComponent(gameRoute[1]) : ''} />
 }
 
-function GameApp() {
+function GameApp({ initialGameId }: { initialGameId: string }) {
   const [players, setPlayers] = useState<[Player, Player]>(() => {
     const saved = readLocalJson<unknown>('wcq-players', defaultPlayers)
     if (!Array.isArray(saved) || saved.length !== 2) return defaultPlayers
@@ -313,6 +319,7 @@ function GameApp() {
   const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
   const [extraChore, setExtraChore] = useState({ assignedTo: 0 as 0 | 1, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
+  const [extraReviews, setExtraReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
   const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(readLocalJson<unknown>('wcq-chores', null)))
   const [remoteState, setRemoteState] = useState<ApiState>(emptyState)
   const [status, setStatus] = useState('Профили и история хранятся на сервере в /data.')
@@ -325,7 +332,7 @@ function GameApp() {
   const [now, setNow] = useState(Date.now())
   const [musicOn, setMusicOn] = useState(false)
   const [savedGameId, setSavedGameId] = useState('')
-  const [activeGameId, setActiveGameId] = useState('')
+  const [activeGameId, setActiveGameId] = useState(() => initialGameId || readLocalJson<string>('wcq-active-game-id', ''))
   const [qrCodes, setQrCodes] = useState<[string, string]>(['', ''])
   const audioRef = useRef<AudioContext | null>(null)
   const timersRef = useRef<number[]>([])
@@ -361,6 +368,10 @@ function GameApp() {
   useEffect(() => {
     writeLocalJson('wcq-target-score', targetScore)
   }, [targetScore])
+
+  useEffect(() => {
+    writeLocalJson('wcq-active-game-id', activeGameId)
+  }, [activeGameId])
 
   useEffect(() => {
     writeLocalJson('wcq-chores', chores)
@@ -402,6 +413,15 @@ function GameApp() {
   }, [activeGameId, phase])
 
   const selectedTasks = useMemo(() => chores.flatMap(getAssignableTasks), [chores])
+  const recommendedScore = useMemo(() => {
+    const potentials = selectedTasks.map((chore) => 10 + chore.minutes + difficultyBonus[chore.difficulty]).sort((a, b) => a - b)
+    const skipCount = Math.min(potentials.length, potentials.length >= 8 ? 3 : potentials.length >= 4 ? 2 : 1)
+    const forgivingTotal = potentials.slice(skipCount).reduce((sum, score) => sum + score, 0)
+    const categoryBonus = chores
+      .filter(isGroup)
+      .reduce((sum, group) => sum + (group.enabled && group.children.filter((child) => child.enabled).length >= 2 ? 12 : 0), 0)
+    return Math.max(20, Math.round((forgivingTotal + categoryBonus) / 10) * 10)
+  }, [chores, selectedTasks])
   const elapsedSeconds = roundStartedAt ? Math.max(0, Math.floor((now - roundStartedAt) / 1000)) : 0
   const playerPlans = useMemo(
     () => [assigned.filter((chore) => chore.assignedTo === 0), assigned.filter((chore) => chore.assignedTo === 1)] as const,
@@ -415,6 +435,7 @@ function GameApp() {
   const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
   const currentPairGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
   const currentPairBoard = remoteState.leaderboard.find((pair) => pair.pairKey === currentPairKey)
+  const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
   const choreStats = useMemo(() => computeChoreStats(currentPairGames, gamePlayers), [currentPairGames, gamePlayers])
 
   const scoreFor = useCallback(
@@ -429,7 +450,11 @@ function GameApp() {
       }, 0)
       const partner = completed.reduce((sum, chore) => sum + chore.partnerRating * 5, 0)
       const streak = completed.length >= 2 ? completed.length * 4 : 0
-      return { total: base + speed + partner + streak, base, speed, partner, streak, count: completed.length }
+      const categoryBonus = [...new Set(completed.map((chore) => chore.parentId).filter(Boolean))].reduce((sum, parentId) => {
+        const groupTasks = assigned.filter((chore) => chore.assignedTo === playerIndex && chore.parentId === parentId)
+        return groupTasks.length > 1 && groupTasks.every((chore) => chore.completed) ? sum + 12 : sum
+      }, 0)
+      return { total: base + speed + partner + streak + categoryBonus, base, speed, partner, streak, count: completed.length }
     },
     [assigned],
   )
@@ -462,6 +487,41 @@ function GameApp() {
       avatarUrl: profile.avatarUrl,
       name: profile.name,
     })
+  }
+
+  const openActiveGame = async (gameId: string) => {
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${gameId}`)
+      setActiveGameId(result.game.id)
+      setAssigned(result.game.chores)
+      setRoundStartedAt(new Date(result.game.startedAt).getTime())
+      setGameMode(result.game.mode || 'duo')
+      setPrize(result.game.prize || '')
+      setTargetScore(result.game.targetScore || targetScore)
+      setPhase('play')
+      window.history.replaceState(null, '', `/game/${result.game.id}`)
+      setStatus('Активная игра загружена.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось загрузить активную игру.')
+    }
+  }
+
+  useEffect(() => {
+    if (initialGameId) {
+      openActiveGame(initialGameId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialGameId])
+
+  const loadPairByEmail = async () => {
+    if (!normalizeEmail(pairEmail).includes('@')) {
+      setStatus('Введите почту и нажмите кнопку загрузки.')
+      return
+    }
+    const state = await api<ApiState>('/api/state')
+    setRemoteState(state)
+    const active = state.activeGames.find((game) => game.pairKey === currentPairKey)
+    setStatus(active ? 'Найдена активная игра. Можно перейти к ней ниже.' : 'Почта загружена. Активной игры пока нет.')
   }
 
   const saveProfile = async (index: 0 | 1) => {
@@ -518,7 +578,7 @@ function GameApp() {
   const addCategory = () => {
     const title = newCategoryTitle.trim()
     if (!title) return
-    setChores((current) => [...current, { id: makeId(), title, enabled: true, children: [] }])
+    setChores((current) => [...current, { id: makeId(), title, enabled: true, icon: 'storage', children: [] }])
     setNewCategoryTitle('')
   }
 
@@ -526,7 +586,7 @@ function GameApp() {
     setChores((current) =>
       current.map((item) =>
         isGroup(item) && item.id === groupId
-          ? { ...item, children: [...item.children, task(makeId(), 'Новое поддело', 10, 'normal')] }
+          ? { ...item, children: [...item.children, task(makeId(), '', 10, 'normal')] }
           : item,
       ),
     )
@@ -621,6 +681,7 @@ function GameApp() {
         method: 'POST',
       })
       setActiveGameId(result.game.id)
+      window.history.replaceState(null, '', `/game/${result.game.id}`)
       setAssigned(result.game.chores)
       setStatus('QR-коды готовы: можно отмечать дела с телефонов.')
     } catch (error) {
@@ -649,6 +710,13 @@ function GameApp() {
           ? current.find((chore) => chore.id === choreId && chore.assignedTo === playerIndex)
           : current.find((chore) => chore.assignedTo === playerIndex && !chore.completed)
         if (!target) return current
+        if (choreId && target.completed) {
+          return current.map((chore) =>
+            chore.id === target.id && chore.assignedTo === target.assignedTo
+              ? { ...chore, completed: false, completedAt: undefined, actualMinutes: undefined }
+              : chore,
+          )
+        }
         const lastDoneAt =
           current
             .filter((chore) => chore.assignedTo === playerIndex)
@@ -668,6 +736,15 @@ function GameApp() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'SELECT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return
+      }
       if (event.code === 'Space') {
         event.preventDefault()
         completeNextFor(0)
@@ -730,11 +807,35 @@ function GameApp() {
     }
   }
 
+  const approveExtraFromMain = async (choreId: string) => {
+    const review = extraReviews[choreId] || { difficulty: 'normal' as Difficulty, rating: 2 }
+    if (!activeGameId) {
+      setAssigned((current) =>
+        current.map((chore) =>
+          chore.id === choreId ? { ...chore, difficulty: review.difficulty, partnerRating: review.rating, approved: true } : chore,
+        ),
+      )
+      return
+    }
+    try {
+      const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}/approve-extra`, {
+        body: JSON.stringify({ choreId, difficulty: review.difficulty, partnerRating: review.rating }),
+        method: 'POST',
+      })
+      setAssigned(result.game.chores)
+      setStatus('Дополнительное дело подтверждено.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось подтвердить дело.')
+    }
+  }
+
   const resetRound = () => {
     setPhase('setup')
     setAssigned([])
     setRoundStartedAt(null)
     setSavedGameId('')
+    setActiveGameId('')
+    window.history.replaceState(null, '', '/')
   }
 
   const toggleMusic = async () => {
@@ -806,12 +907,22 @@ function GameApp() {
           <p className="status-line">{status}</p>
           <label className="pair-email-label">
             Введите почту, чтобы сохранить или загрузить игру
-            <input
-              placeholder="family@example.com"
-              value={pairEmail}
-              onChange={(event) => setPairEmail(event.target.value)}
-            />
+            <span className="email-load-row">
+              <input
+                placeholder="family@example.com"
+                value={pairEmail}
+                onChange={(event) => setPairEmail(event.target.value)}
+              />
+              <button className="pixel-button alt" type="button" onClick={loadPairByEmail}>
+                Загрузить
+              </button>
+            </span>
           </label>
+          {currentActiveGame && phase === 'setup' && (
+            <button className="pixel-button resume-button" type="button" onClick={() => openActiveGame(currentActiveGame.id)}>
+              Продолжить активную игру
+            </button>
+          )}
         </div>
         <button className="pixel-button alt" type="button" onClick={toggleMusic}>
           {musicOn ? 'Музыка: ON' : 'Музыка: OFF'}
@@ -850,6 +961,13 @@ function GameApp() {
                     value={targetScore}
                     onChange={(event) => setTargetScore(Number(event.target.value))}
                   />
+                  <small className="formula-hint">
+                    Рекомендация: {recommendedScore}. Формула: сумма очков выбранных дел минус 1 сложное или 2–3 простых
+                    дела, плюс бонусы за закрытие категорий.
+                  </small>
+                  <button className="tiny-button" type="button" onClick={() => setTargetScore(recommendedScore)}>
+                    Поставить рекомендацию
+                  </button>
                 </label>
               )}
             </div>
@@ -1046,6 +1164,12 @@ function GameApp() {
             onChange={setExtraChore}
             players={players}
           />
+          <PendingExtraApprovals
+            chores={assigned}
+            onApprove={approveExtraFromMain}
+            reviews={extraReviews}
+            setReviews={setExtraReviews}
+          />
           <ScoreCards
             assigned={assigned}
             mode={gameMode}
@@ -1178,10 +1302,18 @@ function ChoreLibrary({
             <div className="chore-group" key={item.id}>
               <div className="chore-row group-row">
                 <input checked={item.enabled} type="checkbox" onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked })} />
+                <span className={`room-icon ${item.icon || 'storage'}`} />
+                <select value={item.icon || 'storage'} onChange={(event) => onUpdateItem(item.id, { icon: event.target.value })}>
+                  {roomIconOptions.map((icon) => (
+                    <option key={icon} value={icon}>
+                      {icon}
+                    </option>
+                  ))}
+                </select>
                 <input value={item.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value })} />
                 <span>{item.children.reduce((sum, child) => sum + (child.enabled ? child.minutes : 0), 0)} мин</span>
                 <button className="tiny-button" type="button" onClick={() => onAddChild(item.id)}>
-                  + поддело
+                  + дело
                 </button>
                 <button className="tiny-button danger" type="button" onClick={() => onDeleteItem(item.id)}>
                   удалить
@@ -1194,7 +1326,11 @@ function ChoreLibrary({
                     type="checkbox"
                     onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked }, child.id)}
                   />
-                  <input value={child.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value }, child.id)} />
+                  <input
+                    placeholder="Новое дело"
+                    value={child.title}
+                    onChange={(event) => onUpdateItem(item.id, { title: event.target.value }, child.id)}
+                  />
                   <input
                     className="mini-input"
                     min={5}
@@ -1306,6 +1442,60 @@ function ExtraChoreForm({
         </button>
       </div>
       {mode === 'duo' && <p className="hint">Партнёр подтвердит сложность и оценку на своей QR-странице.</p>}
+    </article>
+  )
+}
+
+function PendingExtraApprovals({
+  chores,
+  onApprove,
+  reviews,
+  setReviews,
+}: {
+  chores: AssignedChore[]
+  onApprove: (choreId: string) => void
+  reviews: Record<string, { difficulty: Difficulty; rating: number }>
+  setReviews: (value: Record<string, { difficulty: Difficulty; rating: number }>) => void
+}) {
+  const pending = chores.filter((chore) => chore.extra && !chore.approved)
+  if (!pending.length) return null
+
+  return (
+    <article className="pixel-panel extra-panel">
+      <div className="panel-title">
+        <span>!</span>
+        <h2>Подтвердить попутные дела</h2>
+      </div>
+      <div className="review-box">
+        {pending.map((chore) => {
+          const review = reviews[chore.id] || { difficulty: 'normal' as Difficulty, rating: 2 }
+          return (
+            <div className="review-card" key={chore.id}>
+              <strong>{chore.title}</strong>
+              <select
+                value={review.difficulty}
+                onChange={(event) => setReviews({ ...reviews, [chore.id]: { ...review, difficulty: event.target.value as Difficulty } })}
+              >
+                <option value="easy">легко</option>
+                <option value="normal">обычно</option>
+                <option value="hard">сложно</option>
+              </select>
+              <select
+                value={review.rating}
+                onChange={(event) => setReviews({ ...reviews, [chore.id]: { ...review, rating: Number(event.target.value) } })}
+              >
+                <option value={0}>0 баллов</option>
+                <option value={1}>1 балл</option>
+                <option value={2}>2 балла</option>
+                <option value={3}>3 балла</option>
+              </select>
+              <button className="pixel-button start" type="button" onClick={() => onApprove(chore.id)}>
+                Принять и оценить
+              </button>
+            </div>
+          )
+        })}
+      </div>
     </article>
   )
 }
@@ -1612,7 +1802,6 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
           {chores.map((chore) => (
             <button
               className={chore.completed ? 'quest done' : 'quest'}
-              disabled={chore.completed}
               key={`${chore.id}-${chore.assignedTo}`}
               type="button"
               onClick={() => complete(chore.id)}
@@ -1627,8 +1816,8 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: 0 | 1; sess
         </div>
 
         {reviewChores.length > 0 && (
-          <div className="review-box">
-            <h2>Подтвердить дела партнёра</h2>
+          <div className="review-box review-popup">
+            <h2>Партнёр добавил дело</h2>
             {reviewChores.map((chore) => {
               const review = reviews[chore.id] || { difficulty: 'normal' as Difficulty, rating: 2 }
               return (

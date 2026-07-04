@@ -105,6 +105,9 @@ const buildState = () => {
     .slice()
     .sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime())
     .map((game) => hydrateGame(game, db.profiles))
+  const activeGames = Object.values(db.activeGames || {})
+    .sort((a, b) => new Date(b.updatedAt || b.startedAt).getTime() - new Date(a.updatedAt || a.startedAt).getTime())
+    .map((game) => hydrateActiveGame(game, db.profiles))
 
   const pairMap = new Map()
 
@@ -140,7 +143,7 @@ const buildState = () => {
     return scoreB - scoreA
   })
 
-  return { profiles, games, leaderboard }
+  return { activeGames, profiles, games, leaderboard }
 }
 
 const getActiveGame = (requestUrl) => {
@@ -209,6 +212,19 @@ const completeActiveChore = async (gameId, request, response) => {
     : game.chores.find((chore) => chore.assignedTo === playerIndex && !chore.completed)
 
   if (!target) {
+    sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+    return
+  }
+
+  if (choreId && target.completed) {
+    game.chores = game.chores.map((chore) =>
+      chore.id === target.id && chore.assignedTo === playerIndex
+        ? { ...chore, completed: false, completedAt: undefined, actualMinutes: undefined }
+        : chore,
+    )
+    game.updatedAt = new Date().toISOString()
+    db.activeGames[gameId] = game
+    writeDb(db)
     sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
     return
   }
