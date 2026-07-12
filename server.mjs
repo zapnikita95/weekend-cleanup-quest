@@ -25,6 +25,7 @@ const defaultDb = {
   activeGames: {},
   profiles: {},
   games: [],
+  childProfiles: {},
 }
 
 mkdirSync(uploadDir, { recursive: true })
@@ -57,6 +58,7 @@ const readDb = () => {
       activeGames: parsed.activeGames && typeof parsed.activeGames === 'object' ? parsed.activeGames : {},
       profiles: parsed.profiles && typeof parsed.profiles === 'object' ? parsed.profiles : {},
       games: Array.isArray(parsed.games) ? parsed.games : [],
+      childProfiles: parsed.childProfiles && typeof parsed.childProfiles === 'object' ? parsed.childProfiles : {},
     }
   } catch {
     return structuredClone(defaultDb)
@@ -85,6 +87,130 @@ const getPairKey = (players) =>
     .filter(Boolean)
     .sort()
     .join('|')
+
+const defaultStarRules = () => ({ gold: 3, silver: 2, bronze: 1 })
+
+const categoryAchievements = [
+  { id: 'kitchen_master', icon: 'kitchen', threshold: 5 },
+  { id: 'bath_hero', icon: 'bath', threshold: 5 },
+  { id: 'bedroom_guard', icon: 'bedroom', threshold: 5 },
+  { id: 'living_champ', icon: 'living', threshold: 5 },
+  { id: 'garden_ranger', icon: 'garden', threshold: 5 },
+  { id: 'hall_keeper', icon: 'hall', threshold: 5 },
+]
+
+const computeCategoryCountsFromChores = (chores = []) => {
+  const counts = {}
+  for (const chore of chores) {
+    if (!chore.completed) continue
+    const title = String(chore.parentTitle || chore.title || '').toLowerCase()
+    let icon = 'storage'
+    if (title.includes('кух') || title.includes('посуд')) icon = 'kitchen'
+    else if (title.includes('ванн') || title.includes('туал') || title.includes('раков')) icon = 'bath'
+    else if (title.includes('спаль')) icon = 'bedroom'
+    else if (title.includes('гостин') || title.includes('комнат')) icon = 'living'
+    else if (title.includes('прихож') || title.includes('корид')) icon = 'hall'
+    else if (title.includes('сад') || title.includes('двор') || title.includes('улиц')) icon = 'garden'
+    counts[icon] = (counts[icon] || 0) + 1
+  }
+  return counts
+}
+
+const unlockAchievements = (categoryCounts, currentIds = []) => {
+  const next = new Set(currentIds)
+  for (const achievement of categoryAchievements) {
+    if ((categoryCounts[achievement.icon] || 0) >= achievement.threshold) next.add(achievement.id)
+  }
+  return [...next]
+}
+
+const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatarUrl = '' }) => ({
+  id,
+  parentEmail: normalizeEmail(parentEmail),
+  childEmail: normalizeEmail(childEmail),
+  name: String(name || 'Ребёнок').trim(),
+  avatar: String(avatar || 'duck'),
+  avatarUrl: String(avatarUrl || ''),
+  starBalance: 0,
+  starRules: defaultStarRules(),
+  rewards: [
+    { id: makeId(), starsRequired: 3, label: 'Маленький подарок' },
+    { id: makeId(), starsRequired: 5, label: 'Выбор мультика' },
+    { id: makeId(), starsRequired: 10, label: 'Большой приз' },
+  ],
+  ledger: [],
+  achievementIds: [],
+  categoryCounts: {},
+  totalQuests: 0,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+})
+
+const sanitizeChildProfile = (profile, fallback = {}) => ({
+  id: String(profile.id || fallback.id || makeId()),
+  parentEmail: normalizeEmail(profile.parentEmail || fallback.parentEmail || ''),
+  childEmail: normalizeEmail(profile.childEmail || fallback.childEmail || ''),
+  name: String(profile.name || fallback.name || 'Ребёнок').trim(),
+  avatar: String(profile.avatar || fallback.avatar || 'duck'),
+  avatarUrl: String(profile.avatarUrl || fallback.avatarUrl || ''),
+  starBalance: Number(profile.starBalance ?? fallback.starBalance ?? 0),
+  starRules: {
+    gold: Number(profile.starRules?.gold ?? fallback.starRules?.gold ?? 3),
+    silver: Number(profile.starRules?.silver ?? fallback.starRules?.silver ?? 2),
+    bronze: Number(profile.starRules?.bronze ?? fallback.starRules?.bronze ?? 1),
+  },
+  rewards: Array.isArray(profile.rewards)
+    ? profile.rewards.map((reward) => ({
+        id: String(reward.id || makeId()),
+        starsRequired: Number(reward.starsRequired || 0),
+        label: String(reward.label || '').trim(),
+        redeemedAt: reward.redeemedAt ? String(reward.redeemedAt) : undefined,
+      }))
+    : fallback.rewards || [],
+  ledger: Array.isArray(profile.ledger) ? profile.ledger.slice(-100) : fallback.ledger || [],
+  achievementIds: Array.isArray(profile.achievementIds) ? profile.achievementIds.map(String) : fallback.achievementIds || [],
+  categoryCounts:
+    profile.categoryCounts && typeof profile.categoryCounts === 'object'
+      ? profile.categoryCounts
+      : fallback.categoryCounts || {},
+  totalQuests: Number(profile.totalQuests ?? fallback.totalQuests ?? 0),
+  createdAt: profile.createdAt || fallback.createdAt || new Date().toISOString(),
+  updatedAt: profile.updatedAt || fallback.updatedAt || new Date().toISOString(),
+})
+
+const applyChildOutcome = (db, outcome, gameId) => {
+  if (!outcome?.childProfileId) return
+  const profileId = String(outcome.childProfileId)
+  const previous = db.childProfiles[profileId]
+  if (!previous) return
+  if ((previous.ledger || []).some((entry) => entry.gameId === gameId)) return
+
+  const starsEarned = Number(outcome.starsEarned || 0)
+  const categoryDelta = computeCategoryCountsFromChores(outcome.chores || [])
+  const categoryCounts = { ...(previous.categoryCounts || {}) }
+  for (const [icon, count] of Object.entries(categoryDelta)) {
+    categoryCounts[icon] = (categoryCounts[icon] || 0) + count
+  }
+
+  const ledgerEntry = {
+    id: makeId(),
+    gameId,
+    stars: starsEarned,
+    tier: String(outcome.tier || 'none'),
+    note: String(outcome.prizeLabel || outcome.note || 'Квест завершён'),
+    createdAt: new Date().toISOString(),
+  }
+
+  db.childProfiles[profileId] = sanitizeChildProfile({
+    ...previous,
+    starBalance: Number(previous.starBalance || 0) + starsEarned,
+    totalQuests: Number(previous.totalQuests || 0) + 1,
+    categoryCounts,
+    achievementIds: unlockAchievements(categoryCounts, previous.achievementIds || []),
+    ledger: [...(previous.ledger || []), ledgerEntry],
+    updatedAt: new Date().toISOString(),
+  })
+}
 
 const hydrateGame = (game, profiles) => ({
   ...game,
@@ -162,7 +288,9 @@ const buildState = () => {
     childQuest: sortBoard([...boardMaps.childQuest.values()]),
   }
 
-  return { activeGames, profiles, games, leaderboard }
+  const childProfiles = Object.values(db.childProfiles || {}).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+
+  return { activeGames, profiles, games, leaderboard, childProfiles }
 }
 
 const getActiveGame = (requestUrl) => {
@@ -544,12 +672,14 @@ const createGame = async (request, response) => {
   }
 
   const winnerEmail = body.winnerEmail ? normalizeEmail(body.winnerEmail) : ''
+  const mode = body.mode === 'solo' ? 'solo' : body.mode === 'childQuest' ? 'childQuest' : 'duo'
+  const childOutcome = body.childOutcome && typeof body.childOutcome === 'object' ? body.childOutcome : null
   const game = {
     id: makeId(),
     pairKey: getPairKey(players),
     players,
     winnerEmail,
-    mode: body.mode === 'solo' ? 'solo' : body.mode === 'childQuest' ? 'childQuest' : 'duo',
+    mode,
     prize: String(body.prize || ''),
     prizeTiers: Array.isArray(body.prizeTiers) ? body.prizeTiers : [],
     roundMinutes: Number(body.roundMinutes || 0),
@@ -564,13 +694,146 @@ const createGame = async (request, response) => {
       partner: Number(score.partner || 0),
     })),
     chores: Array.isArray(body.chores) ? body.chores.slice(0, 80) : [],
+    childOutcome:
+      mode === 'childQuest' && childOutcome
+        ? {
+            childProfileId: String(childOutcome.childProfileId || ''),
+            childEmail: normalizeEmail(childOutcome.childEmail || players[0]?.email || ''),
+            coins: Number(childOutcome.coins || 0),
+            targetScore: Number(childOutcome.targetScore || body.targetScore || 0),
+            tier: String(childOutcome.tier || 'none'),
+            prizeLabel: String(childOutcome.prizeLabel || body.prize || ''),
+            starsEarned: Number(childOutcome.starsEarned || 0),
+            choresCompleted: Number(childOutcome.choresCompleted || 0),
+          }
+        : undefined,
     finishedAt: new Date().toISOString(),
   }
 
   db.games.push(game)
   db.games = db.games.slice(-500)
+
+  if (mode === 'childQuest' && childOutcome?.childProfileId) {
+    applyChildOutcome(db, { ...childOutcome, chores: game.chores, prizeLabel: game.childOutcome?.prizeLabel }, game.id)
+  }
+
   writeDb(db)
   sendJson(response, 201, { game: hydrateGame(game, db.profiles), state: buildState() })
+}
+
+const upsertChildProfile = async (request, response) => {
+  const body = await readJsonBody(request)
+  const parentEmail = normalizeEmail(body.parentEmail)
+  if (!parentEmail || !parentEmail.includes('@')) {
+    sendError(response, 400, 'Нужна почта родителя.')
+    return
+  }
+
+  const db = readDb()
+  const id = String(body.id || makeId())
+  const previous = db.childProfiles[id] || defaultChildProfile({
+    id,
+    parentEmail,
+    childEmail: body.childEmail || `${parentEmail.split('@')[0]}-child@${parentEmail.split('@')[1] || 'example.com'}`,
+    name: body.name,
+    avatar: body.avatar,
+    avatarUrl: body.avatarUrl,
+  })
+
+  if (previous.parentEmail && previous.parentEmail !== parentEmail) {
+    sendError(response, 403, 'Нельзя изменить чужой профиль ребёнка.')
+    return
+  }
+
+  const profile = sanitizeChildProfile(
+    {
+      ...previous,
+      ...body,
+      id,
+      parentEmail,
+      childEmail: normalizeEmail(body.childEmail || previous.childEmail),
+      name: String(body.name || previous.name || 'Ребёнок').trim(),
+      avatar: String(body.avatar || previous.avatar || 'duck'),
+      avatarUrl: String(body.avatarUrl || previous.avatarUrl || ''),
+      starRules: body.starRules || previous.starRules,
+      rewards: Array.isArray(body.rewards) ? body.rewards : previous.rewards,
+      updatedAt: new Date().toISOString(),
+    },
+    previous,
+  )
+
+  db.childProfiles[id] = profile
+  db.profiles[profile.childEmail] = {
+    ...(db.profiles[profile.childEmail] || {}),
+    email: profile.childEmail,
+    name: profile.name,
+    avatar: profile.avatar,
+    avatarUrl: profile.avatarUrl || '',
+    isChild: true,
+    createdAt: db.profiles[profile.childEmail]?.createdAt || profile.createdAt,
+    updatedAt: new Date().toISOString(),
+  }
+  writeDb(db)
+  sendJson(response, 200, { profile, state: buildState() })
+}
+
+const getChildProfile = (profileId, response) => {
+  const db = readDb()
+  const profile = db.childProfiles[profileId]
+  if (!profile) {
+    sendError(response, 404, 'Профиль ребёнка не найден.')
+    return
+  }
+  const childGames = db.games
+    .filter((game) => game.mode === 'childQuest' && game.childOutcome?.childProfileId === profileId)
+    .slice(-20)
+    .reverse()
+  sendJson(response, 200, { profile: sanitizeChildProfile(profile), games: childGames.map((game) => hydrateGame(game, db.profiles)) })
+}
+
+const redeemChildReward = async (profileId, request, response) => {
+  const body = await readJsonBody(request)
+  const rewardId = String(body.rewardId || '')
+  const db = readDb()
+  const profile = db.childProfiles[profileId]
+  if (!profile) {
+    sendError(response, 404, 'Профиль ребёнка не найден.')
+    return
+  }
+
+  const reward = (profile.rewards || []).find((item) => item.id === rewardId)
+  if (!reward) {
+    sendError(response, 404, 'Награда не найдена.')
+    return
+  }
+  if (reward.redeemedAt) {
+    sendError(response, 400, 'Эта награда уже получена.')
+    return
+  }
+  if (Number(profile.starBalance || 0) < Number(reward.starsRequired || 0)) {
+    sendError(response, 400, 'Звёзд пока недостаточно.')
+    return
+  }
+
+  profile.starBalance = Number(profile.starBalance || 0) - Number(reward.starsRequired || 0)
+  profile.rewards = (profile.rewards || []).map((item) =>
+    item.id === rewardId ? { ...item, redeemedAt: new Date().toISOString() } : item,
+  )
+  profile.ledger = [
+    ...(profile.ledger || []),
+    {
+      id: makeId(),
+      gameId: '',
+      stars: -Number(reward.starsRequired || 0),
+      tier: 'none',
+      note: `Получена награда: ${reward.label}`,
+      createdAt: new Date().toISOString(),
+    },
+  ]
+  profile.updatedAt = new Date().toISOString()
+  db.childProfiles[profileId] = sanitizeChildProfile(profile)
+  writeDb(db)
+  sendJson(response, 200, { profile: db.childProfiles[profileId], state: buildState() })
 }
 
 const serveFile = (response, filePath) => {
@@ -666,6 +929,19 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'POST' && url.pathname === '/api/games') {
       await createGame(request, response)
+      return
+    }
+    if (request.method === 'POST' && url.pathname === '/api/child-profiles') {
+      await upsertChildProfile(request, response)
+      return
+    }
+    const childProfileMatch = url.pathname.match(/^\/api\/child-profiles\/([^/]+)(?:\/(.+))?$/)
+    if (childProfileMatch && request.method === 'GET' && !childProfileMatch[2]) {
+      getChildProfile(decodeURIComponent(childProfileMatch[1]), response)
+      return
+    }
+    if (childProfileMatch && request.method === 'POST' && childProfileMatch[2] === 'redeem') {
+      await redeemChildReward(decodeURIComponent(childProfileMatch[1]), request, response)
       return
     }
     const savedGameMatch = url.pathname.match(/^\/api\/games\/([^/]+)$/)

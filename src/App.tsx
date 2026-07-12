@@ -1,5 +1,15 @@
 import QRCode from 'qrcode'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CATEGORY_ACHIEVEMENTS,
+  type ChildProfile,
+  type ChildQuestOutcome,
+  defaultStarRules,
+  filterGamesByMode,
+  starsForTier,
+  type StarReward,
+  type StarRules,
+} from './childProgress'
 import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
@@ -85,6 +95,10 @@ type GameRecord = {
   elapsedSeconds: number
   scores: (PlayerScore & { email: string })[]
   chores?: AssignedChore[]
+  prize?: string
+  prizeTiers?: PrizeTier[]
+  targetScore?: number
+  childOutcome?: ChildQuestOutcome
   finishedAt: string
 }
 
@@ -110,6 +124,7 @@ type ApiState = {
   profiles: Profile[]
   games: GameRecord[]
   leaderboard: ModeLeaderboards
+  childProfiles: ChildProfile[]
 }
 
 type ActiveGame = {
@@ -253,15 +268,17 @@ const normalizeApiState = (state: ApiState): ApiState => {
         duo: legacy.filter((entry) => !entry.mode || entry.mode === 'duo'),
         childQuest: legacy.filter((entry) => entry.mode === 'childQuest'),
       },
+      childProfiles: Array.isArray(state.childProfiles) ? state.childProfiles : [],
     }
   }
   return {
     ...state,
     leaderboard: state.leaderboard || emptyLeaderboards(),
+    childProfiles: Array.isArray(state.childProfiles) ? state.childProfiles : [],
   }
 }
 
-const emptyState: ApiState = { activeGames: [], profiles: [], games: [], leaderboard: emptyLeaderboards() }
+const emptyState: ApiState = { activeGames: [], profiles: [], games: [], leaderboard: emptyLeaderboards(), childProfiles: [] }
 
 const task = (id: string, title: string, minutes: number, difficulty: Difficulty = 'normal'): ChoreTask => ({
   id,
@@ -437,32 +454,11 @@ const getAssignableTasks = (item: ChoreItem): AssignedChore[] => {
     }))
 }
 
-const computeChoreStats = (games: GameRecord[], players: Player[]): ChoreStat[] => {
-  const map = new Map<string, { total: number; minutes: number; byPlayer: Record<string, number> }>()
-  for (const game of games) {
-    for (const chore of game.chores || []) {
-      if (!chore.completed) continue
-      const playerEmail = normalizeEmail(game.players[chore.assignedTo]?.email || '')
-      const key = chore.title.trim().toLowerCase()
-      const current = map.get(key) || { total: 0, minutes: 0, byPlayer: {} }
-      current.total += 1
-      current.minutes += Number(chore.actualMinutes || chore.minutes || 0)
-      current.byPlayer[playerEmail] = (current.byPlayer[playerEmail] || 0) + 1
-      map.set(key, current)
-    }
-  }
-
-  return [...map.entries()]
-    .map(([title, stat]) => ({
-      title,
-      total: stat.total,
-      avgMinutes: stat.total ? Math.round(stat.minutes / stat.total) : 0,
-      byPlayer: Object.fromEntries(players.map((player) => [normalizeEmail(player.email), stat.byPlayer[normalizeEmail(player.email)] || 0])),
-    }))
-    .sort((a, b) => b.total - a.total)
-}
-
 function App() {
+  const childRoute = window.location.pathname.match(/^\/child\/([^/]+)\/?$/)
+  if (childRoute) {
+    return <ChildCabinetPage profileId={decodeURIComponent(childRoute[1])} />
+  }
   const mobileRoute = window.location.pathname.match(/^\/player\/([^/]+)\/(\d+)\/?$/)
   if (mobileRoute) {
     return <MobilePlayerPage playerIndex={Number(mobileRoute[2])} sessionId={decodeURIComponent(mobileRoute[1])} />
@@ -502,6 +498,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [status, setStatus] = useState('')
   const [newChore, setNewChore] = useState({ title: '', minutes: 15, difficulty: 'normal' as Difficulty })
   const [newCategoryTitle, setNewCategoryTitle] = useState('')
+  const [newCategoryIcon, setNewCategoryIcon] = useState('storage')
+  const [selectedChildProfileId, setSelectedChildProfileId] = useState(() => readLocalJson<string>('wcq-child-profile-id', ''))
   const [roundMinutes, setRoundMinutes] = useState(120)
   const [phase, setPhase] = useState<Phase>('setup')
   const [assigned, setAssigned] = useState<AssignedChore[]>([])
@@ -588,6 +586,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   }, [activeGameId])
 
   useEffect(() => {
+    writeLocalJson('wcq-child-profile-id', selectedChildProfileId)
+  }, [selectedChildProfileId])
+
+  useEffect(() => {
     writeLocalJson('wcq-chores', chores)
   }, [chores])
 
@@ -667,6 +669,28 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   )
   const currentPairKey = gamePlayers.map((player) => normalizeEmail(player.email)).sort().join('|')
   const currentPairAllGames = remoteState.games.filter((game) => game.pairKey === currentPairKey)
+  const currentPairModeGames = useMemo(
+    () => filterGamesByMode(currentPairAllGames, gameMode),
+    [currentPairAllGames, gameMode],
+  )
+  const activeChildProfile = useMemo(
+    () => remoteState.childProfiles.find((profile) => profile.id === selectedChildProfileId) || null,
+    [remoteState.childProfiles, selectedChildProfileId],
+  )
+  const parentChildProfiles = useMemo(
+    () =>
+      remoteState.childProfiles.filter(
+        (profile) => !pairEmail || profile.parentEmail === normalizeEmail(pairEmail),
+      ),
+    [remoteState.childProfiles, pairEmail],
+  )
+
+  useEffect(() => {
+    if (gameMode === 'childQuest' && !selectedChildProfileId && parentChildProfiles.length) {
+      setSelectedChildProfileId(parentChildProfiles[0].id)
+    }
+  }, [gameMode, parentChildProfiles, selectedChildProfileId])
+
   const currentPairBoard = remoteState.leaderboard[gameMode].find((entry) => entry.pairKey === currentPairKey)
   const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
 
@@ -793,7 +817,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setStatus('Введите почту и нажмите кнопку загрузки.')
       return
     }
-    const state = await api<ApiState>('/api/state')
+    const state = normalizeApiState(await api<ApiState>('/api/state'))
     setRemoteState(state)
     const active = state.activeGames.find((game) => game.pairKey === currentPairKey)
     setStatus(active ? 'Найдена активная игра. Можно перейти к ней ниже.' : 'Почта загружена. Активной игры пока нет.')
@@ -843,18 +867,38 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }
   }
 
-  const addChore = () => {
+  const addChore = (groupId?: string) => {
     const title = newChore.title.trim()
     if (!title) return
-    setChores((current) => [...current, { ...newChore, id: makeId(), title, enabled: true, section: currentSection }])
+    if (groupId) {
+      setChores((current) =>
+        current.map((item) =>
+          isGroup(item) && item.id === groupId
+            ? {
+                ...item,
+                children: [
+                  ...item.children,
+                  { ...newChore, id: makeId(), title, enabled: true, section: item.section || currentSection },
+                ],
+              }
+            : item,
+        ),
+      )
+    } else {
+      setChores((current) => [...current, { ...newChore, id: makeId(), title, enabled: true, section: currentSection }])
+    }
     setNewChore({ title: '', minutes: 15, difficulty: 'normal' })
   }
 
   const addCategory = () => {
     const title = newCategoryTitle.trim()
     if (!title) return
-    setChores((current) => [...current, { id: makeId(), title, enabled: true, icon: 'storage', section: currentSection, children: [] }])
+    setChores((current) => [
+      ...current,
+      { id: makeId(), title, enabled: true, icon: newCategoryIcon, section: currentSection, children: [] },
+    ])
     setNewCategoryTitle('')
+    setNewCategoryIcon('storage')
   }
 
   const addSection = () => {
@@ -1277,6 +1321,19 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
   const saveGame = async () => {
     try {
+      const childOutcome =
+        gameMode === 'childQuest' && activeChildProfile
+          ? {
+              childProfileId: activeChildProfile.id,
+              childEmail: normalizeEmail(gamePlayers[0]?.email || ''),
+              coins: childCoins,
+              targetScore,
+              tier: childTier,
+              prizeLabel: prizeTiers.find((tier) => tier.id === childTier)?.label || '',
+              starsEarned: starsForTier(childTier, activeChildProfile.starRules || defaultStarRules),
+              choresCompleted: assigned.filter((chore) => chore.completed).length,
+            }
+          : undefined
       const result = await api<{ game: GameRecord; state: ApiState }>('/api/games', {
         body: JSON.stringify({
           players: gamePlayers.map((player, index) => ({
@@ -1288,6 +1345,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           mode: gameMode,
           prize: gameMode === 'childQuest' ? prizeTiers.find((tier) => tier.id === childTier)?.label || prize : prize,
           prizeTiers: gameMode === 'childQuest' ? prizeTiers : undefined,
+          childOutcome,
           roundMinutes,
           targetScore,
           elapsedSeconds,
@@ -1298,10 +1356,53 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       })
       setRemoteState(normalizeApiState(result.state))
       setSavedGameId(result.game.id)
-      setStatus('Игра сохранена в историю пары.')
+      setStatus(
+        gameMode === 'childQuest' && childOutcome?.starsEarned
+          ? `Игра сохранена. Ребёнок получил ${childOutcome.starsEarned} звёзд.`
+          : 'Игра сохранена в историю.',
+      )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось сохранить игру.')
     }
+  }
+
+  const saveChildProfile = async (patch: Partial<ChildProfile> & { create?: boolean }) => {
+    if (!pairEmail.trim()) {
+      setStatus('Сначала укажите почту семьи.')
+      return
+    }
+    try {
+      const childEmail = normalizeEmail(gamePlayers[0]?.email || pairPlayerEmail(pairEmail, 0))
+      const result = await api<{ profile: ChildProfile; state: ApiState }>('/api/child-profiles', {
+        body: JSON.stringify({
+          id: patch.create ? undefined : selectedChildProfileId || undefined,
+          parentEmail: normalizeEmail(pairEmail),
+          childEmail,
+          name: players[0]?.name || 'Ребёнок',
+          avatar: players[0]?.avatar || 'duck',
+          avatarUrl: players[0]?.avatarUrl || '',
+          starRules: activeChildProfile?.starRules || defaultStarRules,
+          rewards: activeChildProfile?.rewards,
+          ...patch,
+        }),
+        method: 'POST',
+      })
+      setRemoteState(normalizeApiState(result.state))
+      setSelectedChildProfileId(result.profile.id)
+      setStatus('Профиль ребёнка сохранён.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось сохранить профиль ребёнка.')
+    }
+  }
+
+  const copyChildCabinetLink = async () => {
+    if (!selectedChildProfileId) {
+      setStatus('Сначала сохраните профиль ребёнка.')
+      return
+    }
+    const link = `${getShareOrigin()}/child/${selectedChildProfileId}`
+    await copyText(link)
+    setStatus('Ссылка на кабинет ребёнка скопирована.')
   }
 
   return (
@@ -1361,9 +1462,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       {phase === 'setup' && setupView === 'stats' && (
         <section className="setup-grid">
           <StatsPage
+            childProfile={activeChildProfile}
             gameMode={gameMode}
-            pairGames={currentPairAllGames}
-            leaderboard={remoteState.leaderboard}
+            pairGames={currentPairModeGames}
             onBack={goToSetupHome}
             onDeleteGame={deleteSavedGame}
             players={gamePlayers}
@@ -1412,6 +1513,14 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   <p className="hint">
                     Один персонаж — ребёнок. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
                   </p>
+                  <ChildProfileManager
+                    childProfile={activeChildProfile}
+                    childProfiles={parentChildProfiles}
+                    onCopyLink={copyChildCabinetLink}
+                    onSave={saveChildProfile}
+                    onSelectProfile={setSelectedChildProfileId}
+                    selectedProfileId={selectedChildProfileId}
+                  />
                   <label className="child-proof-toggle">
                     <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
                     Нужны фотографии для подтверждения (скоро)
@@ -1444,30 +1553,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             )}
           </article>
 
-          <aside className={`pixel-panel stats-panel ${showOnboarding ? 'tour-stats' : ''}`}>
-            <div className="panel-title">
-              <span>★</span>
-              <h2>Рейтинг прошлых игр</h2>
-            </div>
-            {currentPairBoard ? (
-              <div className="pair-stats">
-                <strong>{currentPairBoard.games} игр</strong>
-                <p>
-                  Общий счёт: {currentPairBoard.totalScore} · Закрыто дел: {currentPairBoard.totalChores}
-                </p>
-                {activePlayerIndexes.map((index) => {
-                  const player = players[index]
-                  return (
-                  <p key={index}>
-                    {player.name}: побед {currentPairBoard.wins[normalizeEmail(gamePlayers[index]?.email || '')] || 0}
-                  </p>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="hint">Прошлых игр пока нет, ваши завершённые игры будут тут</p>
-            )}
-          </aside>
+          <ModeSummaryPanel
+            childProfile={activeChildProfile}
+            gameMode={gameMode}
+            games={currentPairModeGames}
+            onOpenStats={goToStats}
+            pairBoard={currentPairBoard}
+            players={players}
+            gamePlayers={gamePlayers}
+          />
 
           <article className={`pixel-panel ${showOnboarding ? 'tour-duration' : ''}`}>
             <div className="panel-title">
@@ -1503,6 +1597,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             className={showOnboarding ? 'tour-chores' : ''}
             chores={sectionChores}
             currentSection={currentSection}
+            newCategoryIcon={newCategoryIcon}
             newCategoryTitle={newCategoryTitle}
             newChore={newChore}
             newSectionTitle={newSectionTitle}
@@ -1511,6 +1606,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             onAddChore={addChore}
             onAddSection={addSection}
             onDeleteItem={deleteItem}
+            onNewCategoryIcon={setNewCategoryIcon}
             onNewCategoryTitle={setNewCategoryTitle}
             onNewChore={setNewChore}
             onNewSectionTitle={setNewSectionTitle}
@@ -1527,8 +1623,20 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             <div className="panel-title stats-nav-title">
               <span>4</span>
               <div>
-                <h2>История, дела и лидерборд</h2>
-                <p className="hint">Турнирная таблица и статистика по текущему режиму</p>
+                <h2>
+                  {gameMode === 'childQuest'
+                    ? 'Прогресс и история ребёнка'
+                    : gameMode === 'solo'
+                      ? 'Моя история и статистика'
+                      : 'История пары и статистика'}
+                </h2>
+                <p className="hint">
+                  {gameMode === 'childQuest'
+                    ? 'Звёзды, квесты и достижения без глобального лидерборда'
+                    : gameMode === 'solo'
+                      ? 'Когда играл, что делал и что давно не повторял'
+                      : 'Кто что делает чаще и история ваших игр'}
+                </p>
               </div>
             </div>
             <span aria-hidden className="stats-nav-arrow">
@@ -1836,10 +1944,396 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   )
 }
 
+const computeChoreStatsForGames = (games: GameRecord[]): ChoreStat[] => {
+  const map = new Map<string, { total: number; minutes: number; byPlayer: Record<string, number> }>()
+  for (const game of games) {
+    for (const chore of game.chores || []) {
+      if (!chore.completed) continue
+      const playerEmail = normalizeEmail(game.players[chore.assignedTo]?.email || '')
+      const key = chore.title.trim().toLowerCase()
+      const current = map.get(key) || { total: 0, minutes: 0, byPlayer: {} }
+      current.total += 1
+      current.minutes += Number(chore.actualMinutes || chore.minutes || 0)
+      current.byPlayer[playerEmail] = (current.byPlayer[playerEmail] || 0) + 1
+      map.set(key, current)
+    }
+  }
+  return [...map.entries()]
+    .map(([title, stat]) => ({
+      title,
+      total: stat.total,
+      avgMinutes: stat.total ? Math.round(stat.minutes / stat.total) : 0,
+      byPlayer: stat.byPlayer,
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
+const computeRecentChoreTitles = (games: GameRecord[]) => {
+  const seen = new Map<string, string>()
+  for (const game of games) {
+    for (const chore of game.chores || []) {
+      if (!chore.completed) continue
+      const key = chore.title.trim().toLowerCase()
+      if (!seen.has(key)) seen.set(key, game.finishedAt)
+    }
+  }
+  return [...seen.entries()]
+    .map(([title, finishedAt]) => ({ title, finishedAt }))
+    .sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime())
+}
+
+function RoomIcon({ icon, label = '' }: { icon: string; label?: string }) {
+  return <span aria-label={label} className={`room-icon ${icon}`} role="img" title={label} />
+}
+
+function StarSprite({ small = false }: { small?: boolean }) {
+  return <img alt="" className={small ? 'star-sprite small' : 'star-sprite'} src="/sprites/star.svg" />
+}
+
+function ModeSummaryPanel({
+  childProfile,
+  gameMode,
+  games,
+  onOpenStats,
+  pairBoard,
+  players,
+  gamePlayers,
+}: {
+  childProfile: ChildProfile | null
+  gameMode: GameMode
+  games: GameRecord[]
+  onOpenStats: () => void
+  pairBoard?: PairLeaderboard
+  players: Player[]
+  gamePlayers: Player[]
+}) {
+  const recentStats = useMemo(() => computeChoreStatsForGames(games).slice(0, 3), [games])
+  return (
+    <aside className="pixel-panel stats-panel mode-summary-panel">
+      <div className="panel-title">
+        <span>★</span>
+        <h2>
+          {gameMode === 'childQuest' ? 'Прогресс ребёнка' : gameMode === 'solo' ? 'Моя статистика' : 'Статистика пары'}
+        </h2>
+      </div>
+      {gameMode === 'childQuest' ? (
+        childProfile ? (
+          <div className="pair-stats child-summary">
+            <div className="child-summary-stars">
+              <StarSprite small />
+              <strong>{childProfile.starBalance}</strong>
+              <span>звёзд накоплено</span>
+            </div>
+            <p>
+              Квестов: {childProfile.totalQuests} · Ачивок: {childProfile.achievementIds.length}
+            </p>
+            <p className="hint">Следующая награда: {childProfile.rewards.find((reward) => !reward.redeemedAt && childProfile.starBalance >= reward.starsRequired)?.label || 'задайте в профиле'}</p>
+          </div>
+        ) : (
+          <p className="hint">Сохраните профиль ребёнка, чтобы копить звёзды между квестами.</p>
+        )
+      ) : gameMode === 'solo' ? (
+        <div className="pair-stats">
+          <strong>{games.length} игр</strong>
+          <p>Закрыто дел: {games.reduce((sum, game) => sum + (game.scores[0]?.count || 0), 0)}</p>
+          {recentStats.slice(0, 2).map((stat) => (
+            <p key={stat.title}>
+              {stat.title}: {stat.total}×
+            </p>
+          ))}
+          {!games.length && <p className="hint">После первой сохранённой игры здесь появится история дел.</p>}
+        </div>
+      ) : pairBoard ? (
+        <div className="pair-stats">
+          <strong>{pairBoard.games} игр</strong>
+          <p>
+            Закрыто дел: {pairBoard.totalChores} · Общий счёт: {pairBoard.totalScore}
+          </p>
+          {players.map((player, index) => (
+            <p key={player.email}>
+              {player.name}: побед {pairBoard.wins[normalizeEmail(gamePlayers[index]?.email || '')] || 0}
+            </p>
+          ))}
+        </div>
+      ) : (
+        <p className="hint">Прошлых игр пока нет.</p>
+      )}
+      <button className="pixel-button alt wide" type="button" onClick={onOpenStats}>
+        Открыть подробную статистику →
+      </button>
+    </aside>
+  )
+}
+
+function ChildProfileManager({
+  childProfile,
+  childProfiles,
+  onCopyLink,
+  onSave,
+  onSelectProfile,
+  selectedProfileId,
+}: {
+  childProfile: ChildProfile | null
+  childProfiles: ChildProfile[]
+  onCopyLink: () => void
+  onSave: (patch: Partial<ChildProfile> & { create?: boolean }) => Promise<void>
+  onSelectProfile: (id: string) => void
+  selectedProfileId: string
+}) {
+  const [starRules, setStarRules] = useState<StarRules>(childProfile?.starRules || defaultStarRules)
+  const [rewards, setRewards] = useState<StarReward[]>(childProfile?.rewards || [])
+
+  useEffect(() => {
+    setStarRules(childProfile?.starRules || defaultStarRules)
+    setRewards(childProfile?.rewards || [])
+  }, [childProfile])
+
+  return (
+    <div className="child-profile-manager">
+      <div className="child-profile-toolbar">
+        <label>
+          Профиль ребёнка
+          <select
+            value={selectedProfileId}
+            onChange={(event) => onSelectProfile(event.target.value)}
+          >
+            <option value="">Новый профиль</option>
+            {childProfiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="tiny-button" type="button" onClick={() => onSave({ create: !selectedProfileId, starRules, rewards })}>
+          Сохранить профиль
+        </button>
+        <button className="tiny-button alt" disabled={!selectedProfileId} type="button" onClick={onCopyLink}>
+          Ссылка ребёнку
+        </button>
+      </div>
+      <div className="star-rules-grid">
+        <label>
+          За золото
+          <input
+            min={0}
+            type="number"
+            value={starRules.gold}
+            onChange={(event) => setStarRules((current) => ({ ...current, gold: Number(event.target.value) }))}
+          />
+        </label>
+        <label>
+          За серебро
+          <input
+            min={0}
+            type="number"
+            value={starRules.silver}
+            onChange={(event) => setStarRules((current) => ({ ...current, silver: Number(event.target.value) }))}
+          />
+        </label>
+        <label>
+          За бронзу
+          <input
+            min={0}
+            type="number"
+            value={starRules.bronze}
+            onChange={(event) => setStarRules((current) => ({ ...current, bronze: Number(event.target.value) }))}
+          />
+        </label>
+      </div>
+      <div className="child-rewards-editor">
+        <strong>Награды за звёзды</strong>
+        {rewards.map((reward, index) => (
+          <div className="child-reward-row" key={reward.id}>
+            <input
+              min={1}
+              type="number"
+              value={reward.starsRequired}
+              onChange={(event) =>
+                setRewards((current) =>
+                  current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, starsRequired: Number(event.target.value) } : item,
+                  ),
+                )
+              }
+            />
+            <input
+              placeholder="Что получит ребёнок"
+              value={reward.label}
+              onChange={(event) =>
+                setRewards((current) =>
+                  current.map((item, itemIndex) => (itemIndex === index ? { ...item, label: event.target.value } : item)),
+                )
+              }
+            />
+          </div>
+        ))}
+        <button
+          className="tiny-button"
+          type="button"
+          onClick={() => setRewards((current) => [...current, { id: makeId(), starsRequired: 5, label: '' }])}
+        >
+          + награда
+        </button>
+      </div>
+      {childProfile && (
+        <p className="hint">
+          Баланс: {childProfile.starBalance} <StarSprite small /> · Кабинет: /child/{childProfile.id}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ChildCabinetPage({ profileId }: { profileId: string }) {
+  const [profile, setProfile] = useState<ChildProfile | null>(null)
+  const [games, setGames] = useState<GameRecord[]>([])
+  const [status, setStatus] = useState('Загружаю кабинет...')
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const result = await api<{ profile: ChildProfile; games: GameRecord[] }>(`/api/child-profiles/${profileId}`)
+      setProfile(result.profile)
+      setGames(result.games)
+      setStatus('')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось загрузить кабинет.')
+    }
+  }, [profileId])
+
+  useEffect(() => {
+    loadProfile()
+  }, [loadProfile])
+
+  const redeemReward = async (rewardId: string) => {
+    try {
+      const result = await api<{ profile: ChildProfile }>(`/api/child-profiles/${profileId}/redeem`, {
+        body: JSON.stringify({ rewardId }),
+        method: 'POST',
+      })
+      setProfile(result.profile)
+      setStatus('Награда получена!')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось получить награду.')
+    }
+  }
+
+  if (!profile) {
+    return (
+      <main className="game-shell child-cabinet-shell">
+        <p className="app-toast">{status || 'Загрузка...'}</p>
+      </main>
+    )
+  }
+
+  const unlocked = new Set(profile.achievementIds)
+  const nextReward = profile.rewards.find((reward) => !reward.redeemedAt && profile.starBalance >= reward.starsRequired)
+
+  return (
+    <main className="game-shell child-cabinet-shell">
+      {status && <p className="app-toast">{status}</p>}
+      <header className="topbar pixel-panel child-cabinet-header">
+        <div className="child-cabinet-hero">
+          <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} />
+          <div>
+            <p className="eyebrow">Личный кабинет</p>
+            <h1>{profile.name}</h1>
+            <div className="child-summary-stars">
+              <StarSprite />
+              <strong>{profile.starBalance}</strong>
+              <span>звёзд</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section className="setup-grid child-cabinet-grid">
+        <article className="pixel-panel">
+          <h2>Награды</h2>
+          <div className="history-list">
+            {profile.rewards.map((reward) => {
+              const canRedeem = !reward.redeemedAt && profile.starBalance >= reward.starsRequired
+              return (
+                <div className="history-row history-row-actions" key={reward.id}>
+                  <div className="history-row-body">
+                    <strong>
+                      {reward.starsRequired} <StarSprite small /> — {reward.label || 'Награда'}
+                    </strong>
+                    <span>{reward.redeemedAt ? `Получено ${formatDate(reward.redeemedAt)}` : canRedeem ? 'Можно забрать!' : `Ещё ${reward.starsRequired - profile.starBalance} звёзд`}</span>
+                  </div>
+                  {canRedeem && (
+                    <button className="tiny-button" type="button" onClick={() => redeemReward(reward.id)}>
+                      Забрать
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {nextReward && <p className="hint">Ближайшая цель: {nextReward.label}</p>}
+        </article>
+
+        <article className="pixel-panel">
+          <h2>Достижения</h2>
+          <div className="achievement-grid">
+            {CATEGORY_ACHIEVEMENTS.map((achievement) => (
+              <div className={`achievement-card ${unlocked.has(achievement.id) ? 'unlocked' : ''}`} key={achievement.id}>
+                <RoomIcon icon={achievement.icon} label={achievement.title} />
+                <strong>{achievement.title}</strong>
+                <span>{unlocked.has(achievement.id) ? 'Открыто!' : `${profile.categoryCounts[achievement.icon] || 0}/${achievement.threshold} дел`}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="pixel-panel">
+          <h2>История квестов</h2>
+          <div className="history-list">
+            {games.map((game) => (
+              <div className="history-row" key={game.id}>
+                <div className="history-row-body">
+                  <strong>
+                    {game.childOutcome?.coins ?? game.scores[0]?.total ?? 0} монет · {game.childOutcome?.starsEarned || 0} <StarSprite small />
+                  </strong>
+                  <span>
+                    {formatDate(game.finishedAt)} · {game.childOutcome?.prizeLabel || game.prize || 'Квест'}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {!games.length && <p className="hint">Пока нет сохранённых квестов.</p>}
+          </div>
+        </article>
+
+        <article className="pixel-panel">
+          <h2>Журнал звёзд</h2>
+          <div className="history-list">
+            {profile.ledger.slice().reverse().map((entry) => (
+              <div className="history-row" key={entry.id}>
+                <div className="history-row-body">
+                  <strong>
+                    {entry.stars > 0 ? '+' : ''}
+                    {entry.stars} <StarSprite small />
+                  </strong>
+                  <span>
+                    {formatDate(entry.createdAt)} · {entry.note}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {!profile.ledger.length && <p className="hint">Звёзды появятся после сохранённых квестов.</p>}
+          </div>
+        </article>
+      </section>
+    </main>
+  )
+}
+
 function ChoreLibrary({
   chores,
   className = '',
   currentSection,
+  newCategoryIcon,
   newCategoryTitle,
   newChore,
   newSectionTitle,
@@ -1848,6 +2342,7 @@ function ChoreLibrary({
   onAddChore,
   onAddSection,
   onDeleteItem,
+  onNewCategoryIcon,
   onNewCategoryTitle,
   onNewChore,
   onNewSectionTitle,
@@ -1858,14 +2353,16 @@ function ChoreLibrary({
   chores: ChoreItem[]
   className?: string
   currentSection: string
+  newCategoryIcon: string
   newCategoryTitle: string
   newChore: { title: string; minutes: number; difficulty: Difficulty }
   newSectionTitle: string
   onAddCategory: () => void
   onAddChild: (groupId: string) => void
-  onAddChore: () => void
+  onAddChore: (groupId?: string) => void
   onAddSection: () => void
   onDeleteItem: (id: string, childId?: string) => void
+  onNewCategoryIcon: (icon: string) => void
   onNewCategoryTitle: (title: string) => void
   onNewChore: (chore: { title: string; minutes: number; difficulty: Difficulty }) => void
   onNewSectionTitle: (title: string) => void
@@ -1874,13 +2371,17 @@ function ChoreLibrary({
   sections: string[]
 }) {
   const [addingSection, setAddingSection] = useState(false)
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const categoryOptions = chores.filter(isGroup)
 
   return (
     <article className={className ? `pixel-panel chores-panel ${className}` : 'pixel-panel chores-panel'}>
-      <div className="panel-title panel-title-with-tabs">
-        <span>3</span>
-        <h2>Общий список дел</h2>
-        <div className="section-tabs">
+      <div className="chores-panel-header">
+        <div className="panel-title">
+          <span>3</span>
+          <h2>Общий список дел</h2>
+        </div>
+        <div className="section-tabs chores-section-tabs">
           {sections.map((section) => (
             <button
               className={currentSection === section ? 'section-tab active' : 'section-tab'}
@@ -1921,10 +2422,48 @@ function ChoreLibrary({
         </div>
       )}
       <div className="chore-compose">
+        <p className="compose-label">Категория</p>
+        <div className="chore-compose-row chore-compose-category">
+          <RoomIcon icon={newCategoryIcon} label={roomIconLabels[newCategoryIcon]} />
+          <select
+            aria-label="Иконка категории"
+            className="compose-icon-select"
+            value={newCategoryIcon}
+            onChange={(event) => onNewCategoryIcon(event.target.value)}
+          >
+            {roomIconOptions.map((icon) => (
+              <option key={icon} value={icon}>
+                {roomIconLabels[icon]}
+              </option>
+            ))}
+          </select>
+          <input
+            placeholder="Например: ванная комната"
+            value={newCategoryTitle}
+            onChange={(event) => onNewCategoryTitle(event.target.value)}
+          />
+          <button className="tiny-button alt compose-add-category" title="Добавить категорию" type="button" onClick={onAddCategory}>
+            + кат
+          </button>
+        </div>
+        <p className="compose-label">Дело</p>
         <div className="chore-compose-row">
+          <select
+            aria-label="Категория для дела"
+            className="compose-category-select"
+            value={selectedCategoryId}
+            onChange={(event) => setSelectedCategoryId(event.target.value)}
+          >
+            <option value="">Без категории</option>
+            {categoryOptions.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.title}
+              </option>
+            ))}
+          </select>
           <input
             className="compose-title"
-            placeholder="Дело"
+            placeholder="Название дела"
             value={newChore.title}
             onChange={(event) => onNewChore({ ...newChore, title: event.target.value })}
           />
@@ -1946,27 +2485,24 @@ function ChoreLibrary({
             <option value="normal">обычно</option>
             <option value="hard">сложно</option>
           </select>
-          <button className="tiny-button compose-add" title="Добавить дело" type="button" onClick={onAddChore}>
+          <button
+            className="tiny-button compose-add"
+            title="Добавить дело"
+            type="button"
+            onClick={() => onAddChore(selectedCategoryId || undefined)}
+          >
             +
-          </button>
-        </div>
-        <div className="chore-compose-row chore-compose-category">
-          <input
-            placeholder="Категория"
-            value={newCategoryTitle}
-            onChange={(event) => onNewCategoryTitle(event.target.value)}
-          />
-          <button className="tiny-button alt compose-add-category" title="Добавить категорию" type="button" onClick={onAddCategory}>
-            + кат
           </button>
         </div>
       </div>
       <div className="chore-list">
         {chores.map((item) =>
           isGroup(item) ? (
-            <div className="chore-group" key={item.id}>
+            <div className={`chore-group icon-${item.icon || 'storage'}`} key={item.id}>
               <div className="chore-row group-row">
+                <span className="row-kind">Категория</span>
                 <input checked={item.enabled} type="checkbox" onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked })} />
+                <RoomIcon icon={item.icon || 'storage'} label={roomIconLabels[item.icon || 'storage']} />
                 <select className="room-icon-select" value={item.icon || 'storage'} onChange={(event) => onUpdateItem(item.id, { icon: event.target.value })}>
                   {roomIconOptions.map((icon) => (
                     <option key={icon} value={icon}>
@@ -1975,7 +2511,7 @@ function ChoreLibrary({
                   ))}
                 </select>
                 <input value={item.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value })} />
-                <span>{item.children.reduce((sum, child) => sum + (child.enabled ? child.minutes : 0), 0)} мин</span>
+                <span className="group-minutes">{item.children.reduce((sum, child) => sum + (child.enabled ? child.minutes : 0), 0)} мин</span>
                 <button className="tiny-button" type="button" onClick={() => onAddChild(item.id)}>
                   + дело
                 </button>
@@ -1985,6 +2521,7 @@ function ChoreLibrary({
               </div>
               {item.children.map((child) => (
                 <div className="chore-row child-row" key={child.id}>
+                  <span className="row-kind">Дело</span>
                   <input
                     checked={child.enabled}
                     type="checkbox"
@@ -2015,7 +2552,8 @@ function ChoreLibrary({
               ))}
             </div>
           ) : (
-            <div className="chore-row" key={item.id}>
+            <div className="chore-row standalone-row" key={item.id}>
+              <span className="row-kind">Дело</span>
               <input checked={item.enabled} type="checkbox" onChange={(event) => onUpdateItem(item.id, { enabled: event.target.checked })} />
               <input value={item.title} onChange={(event) => onUpdateItem(item.id, { title: event.target.value })} />
               <input
@@ -2336,40 +2874,28 @@ function ProfileEditor({
   )
 }
 
-const modeLabels: Record<GameMode, string> = {
-  solo: 'Одиночный',
-  duo: 'Парный',
-  childQuest: 'Квест для ребёнка',
-}
 
 function StatsPage({
+  childProfile,
   gameMode,
   pairGames,
-  leaderboard,
   onBack,
   onDeleteGame,
   players,
 }: {
+  childProfile: ChildProfile | null
   gameMode: GameMode
   pairGames: GameRecord[]
-  leaderboard: ModeLeaderboards
   onBack: () => void
   onDeleteGame: (gameId: string) => void
   players: Player[]
 }) {
-  const [statsTab, setStatsTab] = useState<'tournament' | 'analytics'>('tournament')
-  const [statsMode, setStatsMode] = useState<GameMode>(gameMode)
+  const [statsTab, setStatsTab] = useState<'history' | 'analytics'>('history')
+  const modeStats = useMemo(() => computeChoreStatsForGames(pairGames), [pairGames])
+  const recentChores = useMemo(() => computeRecentChoreTitles(pairGames), [pairGames])
 
-  useEffect(() => {
-    setStatsMode(gameMode)
-  }, [gameMode])
-
-  const modeHistory = useMemo(
-    () => pairGames.filter((game) => (game.mode || 'duo') === statsMode),
-    [pairGames, statsMode],
-  )
-  const modeStats = useMemo(() => computeChoreStats(modeHistory, players), [modeHistory, players])
-  const modeBoard = leaderboard[statsMode]
+  const pageTitle =
+    gameMode === 'childQuest' ? 'Прогресс ребёнка' : gameMode === 'solo' ? 'Моя история' : 'История пары'
 
   return (
     <article className="pixel-panel stats-page">
@@ -2379,112 +2905,133 @@ function StatsPage({
         </button>
         <div className="panel-title stats-page-title">
           <span>4</span>
-          <h2>История, дела и лидерборд</h2>
+          <h2>{pageTitle}</h2>
         </div>
       </div>
 
+      {gameMode === 'childQuest' && childProfile && (
+        <div className="stats-child-hero">
+          <StarSprite />
+          <div>
+            <strong>{childProfile.starBalance} звёзд</strong>
+            <p>
+              Квестов: {childProfile.totalQuests} · Ачивок: {childProfile.achievementIds.length}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="stats-page-tabs">
         <button
-          className={statsTab === 'tournament' ? 'section-tab active' : 'section-tab'}
+          className={statsTab === 'history' ? 'section-tab active' : 'section-tab'}
           type="button"
-          onClick={() => setStatsTab('tournament')}
+          onClick={() => setStatsTab('history')}
         >
-          Турнирная таблица
+          История
         </button>
         <button
           className={statsTab === 'analytics' ? 'section-tab active' : 'section-tab'}
           type="button"
           onClick={() => setStatsTab('analytics')}
         >
-          Статистика
+          Статистика дел
         </button>
       </div>
 
-      <div className="stats-mode-picker">
-        {(['solo', 'duo', 'childQuest'] as const).map((mode) => (
-          <button
-            className={statsMode === mode ? 'section-tab active' : 'section-tab'}
-            key={mode}
-            type="button"
-            onClick={() => setStatsMode(mode)}
-          >
-            {modeLabels[mode]}
-          </button>
-        ))}
-      </div>
-
-      {statsTab === 'tournament' && (
-        <div className="stats-tournament-layout">
-          <section className="stats-section">
-            <h3>Турнирная таблица · {modeLabels[statsMode]}</h3>
-            <div className="history-list">
-              {modeBoard.map((entry, index) => (
-                <div className="history-row" key={`${statsMode}-${entry.pairKey}`}>
-                  <div className="history-row-body">
-                    <strong>
-                      #{index + 1}{' '}
-                      {statsMode === 'solo' || statsMode === 'childQuest'
-                        ? entry.players[0]?.name || 'Игрок'
-                        : entry.players.map((player) => player.name).join(' + ')}
-                    </strong>
-                    <span>
-                      {entry.games} игр · {entry.totalScore} очков · {entry.totalChores} дел
-                    </span>
-                  </div>
+      {statsTab === 'history' && (
+        <section className="stats-section">
+          <h3>
+            {gameMode === 'childQuest' ? 'Сохранённые квесты' : gameMode === 'solo' ? 'Мои прошлые игры' : 'Игры пары'}
+          </h3>
+          <div className="history-list">
+            {pairGames.map((game) => (
+              <div className="history-row history-row-actions" key={game.id}>
+                <div className="history-row-body">
+                  <strong>
+                    {game.mode === 'childQuest'
+                      ? `${game.childOutcome?.coins ?? game.scores[0]?.total ?? 0} монет · ${game.childOutcome?.starsEarned || 0} звёзд`
+                      : game.mode === 'solo'
+                        ? `${game.players[0]?.name || 'Соло'}: ${game.scores[0]?.total || 0} очков`
+                        : game.winnerEmail
+                          ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}`
+                          : 'Ничья'}
+                  </strong>
+                  <span>
+                    {formatDate(game.finishedAt)}
+                    {game.mode === 'childQuest'
+                      ? ` · ${game.childOutcome?.prizeLabel || game.prize || 'Квест'}`
+                      : ` · ${game.scores.map((score) => score.total).join(' : ')}`}
+                  </span>
                 </div>
-              ))}
-              {!modeBoard.length && <p className="hint">В этом режиме пока никого нет в таблице.</p>}
-            </div>
-          </section>
-
-          <section className="stats-section">
-            <h3>История · {modeLabels[statsMode]}</h3>
-            <div className="history-list">
-              {modeHistory.map((game) => (
-                <div className="history-row history-row-actions" key={game.id}>
-                  <div className="history-row-body">
-                    <strong>
-                      {game.mode === 'childQuest'
-                        ? game.players[0]?.name || 'Квест'
-                        : game.mode === 'solo'
-                          ? `${game.players[0]?.name || 'Соло'}: ${game.scores[0]?.total || 0} очков`
-                          : game.winnerEmail
-                            ? `Победа: ${game.players.find((player) => player.email === game.winnerEmail)?.name}`
-                            : 'Ничья'}
-                    </strong>
-                    <span>
-                      {formatDate(game.finishedAt)} · {game.scores.map((score) => score.total).join(' : ')}
-                    </span>
-                  </div>
-                  <button className="tiny-button danger" type="button" onClick={() => onDeleteGame(game.id)}>
-                    Удалить
-                  </button>
-                </div>
-              ))}
-              {!modeHistory.length && <p className="hint">Сохранённых игр в этом режиме пока нет.</p>}
-            </div>
-          </section>
-        </div>
+                <button className="tiny-button danger" type="button" onClick={() => onDeleteGame(game.id)}>
+                  Удалить
+                </button>
+              </div>
+            ))}
+            {!pairGames.length && <p className="hint">Сохранённых игр в этом режиме пока нет.</p>}
+          </div>
+        </section>
       )}
 
       {statsTab === 'analytics' && (
-        <section className="stats-section">
-          <h3>Кто что делает чаще · {modeLabels[statsMode]}</h3>
-          <div className="history-list">
-            {modeStats.map((stat) => (
-              <div className="history-row" key={stat.title}>
-                <div className="history-row-body">
-                  <strong>{stat.title}</strong>
-                  <span>
-                    {players.map((player) => `${player.name}: ${stat.byPlayer[normalizeEmail(player.email)] || 0}`).join(' · ')} ·
-                    среднее {stat.avgMinutes} мин
-                  </span>
+        <div className="stats-analytics-layout">
+          <section className="stats-section">
+            <h3>{gameMode === 'duo' ? 'Кто что делает чаще' : 'Что делал чаще'}</h3>
+            <div className="history-list">
+              {modeStats.map((stat) => (
+                <div className="history-row" key={stat.title}>
+                  <div className="history-row-body">
+                    <strong>{stat.title}</strong>
+                    <span>
+                      {gameMode === 'duo'
+                        ? players.map((player) => `${player.name}: ${stat.byPlayer[normalizeEmail(player.email)] || 0}`).join(' · ')
+                        : `${stat.total}×`}
+                      {' · '}среднее {stat.avgMinutes} мин
+                    </span>
+                  </div>
                 </div>
+              ))}
+              {!modeStats.length && <p className="hint">Статистика дел появится после сохранённых игр.</p>}
+            </div>
+          </section>
+
+          {gameMode === 'solo' && (
+            <section className="stats-section">
+              <h3>Недавние дела</h3>
+              <div className="history-list">
+                {recentChores.slice(0, 12).map((item) => (
+                  <div className="history-row" key={item.title}>
+                    <div className="history-row-body">
+                      <strong>{item.title}</strong>
+                      <span>{formatDate(item.finishedAt)}</span>
+                    </div>
+                  </div>
+                ))}
+                {!recentChores.length && <p className="hint">Здесь будет видно, что ты уже делал и когда.</p>}
               </div>
-            ))}
-            {!modeStats.length && <p className="hint">Статистика дел появится после сохранённых игр.</p>}
-          </div>
-        </section>
+            </section>
+          )}
+
+          {gameMode === 'childQuest' && childProfile && (
+            <section className="stats-section">
+              <h3>Достижения по категориям</h3>
+              <div className="achievement-grid">
+                {CATEGORY_ACHIEVEMENTS.map((achievement) => (
+                  <div
+                    className={`achievement-card ${childProfile.achievementIds.includes(achievement.id) ? 'unlocked' : ''}`}
+                    key={achievement.id}
+                  >
+                    <RoomIcon icon={achievement.icon} label={achievement.title} />
+                    <strong>{achievement.title}</strong>
+                    <span>
+                      {childProfile.categoryCounts[achievement.icon] || 0}/{achievement.threshold} дел
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       )}
     </article>
   )
