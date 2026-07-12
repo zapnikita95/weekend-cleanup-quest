@@ -320,7 +320,14 @@ const defaultChores: ChoreItem[] = [
   task('dust', 'Вытереть пыль', 20),
 ]
 
-const teenChores: ChoreItem[] = [
+
+
+const masterChores: ChoreItem[] = [
+  ...defaultChores,
+  task('make-bed', 'Заправить кровать', 5, 'easy'),
+  task('dishes-quick', 'Помыть посуду после еды', 10),
+  task('surfaces', 'Протереть поверхности', 12),
+  task('trash-daily', 'Вынести мусор', 5, 'easy'),
   task('dishes-full', 'Полный цикл посуды + посудомойка', 18),
   task('laundry-full', 'Стирка: загрузить + развесить + убрать', 25, 'normal'),
   task('vacuum-rooms', 'Пропылесосить все комнаты', 30, 'hard'),
@@ -331,43 +338,17 @@ const teenChores: ChoreItem[] = [
   task('car-wash', 'Помыть машину снаружи или внутри', 35, 'hard'),
   task('grocery-help', 'Помочь с продуктами: занести + разложить', 15),
   task('room-reset', 'Своя комната: убрать поверхность + пылесос', 25),
-]
+  task('windows', 'Помыть окна / зеркала', 30, 'hard'),
+  task('fridge-deep', 'Разобрать холодильник', 35, 'hard'),
+];
 
-const templates: Record<string, { sections: string[]; chores: ChoreItem[] }> = {
-  'weekend': {
-    sections: ['Дела по дому', 'Уход за собой'],
-    chores: defaultChores,
-  },
-  'daily': {
-    sections: ['Быстрый reset'],
-    chores: [
-      task('make-bed', 'Заправить кровать', 5, 'easy'),
-      task('dishes-quick', 'Помыть посуду после еды', 10),
-      task('surfaces', 'Протереть поверхности', 12),
-      task('trash-daily', 'Вынести мусор', 5, 'easy'),
-    ],
-  },
-  'teen': {
-    sections: ['Самостоятельность', 'Дом'],
-    chores: teenChores,
-  },
-  'deep': {
-    sections: ['Глубокая уборка'],
-    chores: [
-      ...defaultChores,
-      task('windows', 'Помыть окна / зеркала', 30, 'hard'),
-      task('fridge-deep', 'Разобрать холодильник', 35, 'hard'),
-    ],
-  },
-  'minimal': {
-    sections: ['Мини-квест'],
-    chores: [
-      task('dishes', 'Помыть посуду', 15),
-      task('trash', 'Мусор и пакеты', 10, 'easy'),
-      task('vacuum', 'Пропылесосить основные зоны', 20),
-    ],
-  },
-}
+const templateSelections: Record<string, string[]> = {
+  'weekend': ['dishes', 'bathroom-group', 'kitchen', 'vacuum', 'laundry', 'wardrobe', 'trash', 'dust'],
+  'daily': ['make-bed', 'dishes-quick', 'surfaces', 'trash-daily'],
+  'teen': ['dishes-full', 'laundry-full', 'vacuum-rooms', 'trash-recycle', 'bathroom-reset', 'kitchen-counters', 'fridge-check', 'car-wash', 'grocery-help', 'room-reset'],
+  'deep': ['dishes', 'bathroom-group', 'kitchen', 'vacuum', 'laundry', 'wardrobe', 'trash', 'dust', 'windows', 'fridge-deep'],
+  'minimal': ['dishes', 'trash', 'vacuum'],
+};
 
 
 
@@ -483,37 +464,6 @@ const writeLocalJson = (key: string, value: unknown) => {
   }
 }
 
-const normalizeStoredChores = (items: unknown): ChoreItem[] => {
-  if (!Array.isArray(items)) return defaultChores
-  return items.map((item: any) => {
-    if (Array.isArray(item.children)) {
-      return {
-        id: String(item.id || makeId()),
-        title: String(item.title || 'Категория'),
-        enabled: item.enabled !== false,
-        icon: String(item.icon || 'storage'),
-        section: String(item.section || defaultSections[0]),
-        children: item.children.map((child: any) => ({
-          id: String(child.id || makeId()),
-          title: String(child.title || 'Поддело'),
-          minutes: Number(child.minutes || 10),
-          difficulty: (child.difficulty || 'normal') as Difficulty,
-          enabled: child.enabled !== false,
-          section: String(child.section || item.section || defaultSections[0]),
-        })),
-      }
-    }
-    return {
-      id: String(item.id || makeId()),
-      title: String(item.title || 'Дело'),
-      minutes: Number(item.minutes || 10),
-      difficulty: (item.difficulty || 'normal') as Difficulty,
-      enabled: item.enabled !== false,
-      section: String(item.section || defaultSections[0]),
-    }
-  })
-}
-
 const getAssignableTasks = (item: ChoreItem): AssignedChore[] => {
   if (!item.enabled) return []
   if (!isGroup(item)) {
@@ -562,10 +512,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }))
   })
   const [requirePhotoProof, setRequirePhotoProof] = useState(() => readLocalJson<boolean>('wcq-require-photo', false))
+  const [playOnStars, setPlayOnStars] = useState(true)
+  const [showAddChildModal, setShowAddChildModal] = useState(false)
+  const [newChildName, setNewChildName] = useState('')
+  const [newChildAgeGroup, setNewChildAgeGroup] = useState<'kid' | 'teen'>('kid')
+  const [newChildRegulars, setNewChildRegulars] = useState('Помыть посуду,Прибрать комнату')
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
   const [extraChore, setExtraChore] = useState({ assignedTo: 0, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
   const [extraReviews, setExtraReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
-  const [chores, setChores] = useState<ChoreItem[]>(() => normalizeStoredChores(readLocalJson<unknown>('wcq-chores', null)))
+  const [chores, setChores] = useState<ChoreItem[]>(() => masterChores.map(c => ({...c, enabled: c.enabled !== false})))
   const [sections, setSections] = useState<string[]>(() => {
     const saved = readLocalJson<unknown>('wcq-sections', defaultSections)
     const valid = Array.isArray(saved) ? saved.map(String).filter(Boolean) : defaultSections
@@ -1043,10 +998,18 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const loadTemplate = (key: string) => {
     const isTeenProfile = remoteState.childProfiles.find(p => p.id === selectedChildProfileId)?.ageGroup === 'teen'
     const isTeen = isTeenProfile || key === 'teen'
-    const tpl = templates[key] || (isTeen ? templates.teen : templates.weekend)
-    const nextChores = (key === 'teen' || isTeen) ? teenChores : (tpl.chores || defaultChores)
-    const nextSections = (tpl && tpl.sections) || defaultSections
-    setChores(nextChores)
+    const selectedIds = templateSelections[key] || templateSelections['weekend']
+    const nextSections = key === 'daily' ? ['Быстрый сброс'] : key === 'teen' ? ['Самостоятельность', 'Дом'] : key === 'deep' ? ['Глубокая уборка'] : key === 'minimal' ? ['Мини-квест'] : defaultSections
+    setChores(masterChores.map(item => {
+      if (!isGroup(item)) {
+        return { ...item, enabled: selectedIds.includes(item.id) }
+      }
+      return {
+        ...item,
+        enabled: item.children.some(c => selectedIds.includes(c.id)),
+        children: item.children.map(c => ({ ...c, enabled: selectedIds.includes(c.id) }))
+      }
+    }))
     setSections(nextSections)
     setCurrentSection(nextSections[0] || defaultSections[0])
     setStartHints([])
@@ -1095,7 +1058,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     const blockers: string[] = []
     if (!selectedTasks.length) blockers.push('chores')
     if (gameMode === 'childQuest') {
-      if (!prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) blockers.push('gold-prize')
+      if (!playOnStars) {
+        if (!prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) blockers.push('gold-prize')
+      }
       if (!players[0]?.name.trim()) blockers.push('child-name')
     } else if (!prize.trim()) {
       blockers.push('prize')
@@ -1513,6 +1478,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setStatus('Введите PIN родителя для редактирования наград.')
       return
     }
+    if (patch.create) {
+      const name = patch.name || players[0]?.name || '';
+      const avatar = patch.avatar || players[0]?.avatar || 'duck';
+      const dup = parentChildProfiles.find(p => p.name.toLowerCase() === name.toLowerCase() && p.avatar === avatar);
+      if (dup) {
+        setStatus('Такой ребенок уже есть, дубли не разрешены.');
+        return;
+      }
+    }
     try {
       const childEmail = normalizeEmail(gamePlayers[0]?.email || pairPlayerEmail(pairEmail, 0))
       const result = await api<{ profile: ChildProfile; state: ApiState }>('/api/child-profiles', {
@@ -1530,8 +1504,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         method: 'POST',
       })
       setRemoteState(normalizeApiState(result.state))
-      setSelectedChildProfileId(result.profile.id)
-      setStatus('Профиль ребёнка сохранён.')
+      if (patch.create) setSelectedChildProfileId(result.profile.id)
+      setStatus('Профиль сохранён!')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось сохранить профиль ребёнка.')
     }
@@ -1620,7 +1594,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           <article className={`pixel-panel profiles-panel ${showOnboarding ? 'tour-profiles' : ''}`}>
             <div className="panel-title">
               <span>1</span>
-              <h2>{gameMode === 'childQuest' ? 'Профиль ребёнка' : 'Профили игроков'}</h2>
+              <h2>{gameMode === 'childQuest' ? 'Настройки игры' : 'Профили игроков'}</h2>
             </div>
             <div className="mode-grid mode-grid-three">
               <button className={gameMode === 'duo' ? 'pixel-button active' : 'pixel-button'} type="button" onClick={() => switchGameMode('duo')}>
@@ -1656,6 +1630,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   <p className="hint">
                     Один персонаж — ребёнок. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
                   </p>
+                  <div style={{margin: '8px 0'}}>
+                    <label><input type="radio" checked={playOnStars} onChange={() => setPlayOnStars(true)} /> Играем на звезды (из долгосрочной цели)</label>
+                    <label style={{marginLeft:8}}><input type="radio" checked={!playOnStars} onChange={() => setPlayOnStars(false)} /> Играем на приз</label>
+                  </div>
                   {parentChildProfiles.length > 0 && (
                     <div style={{marginTop:8}}>
                       <label>
@@ -1666,18 +1644,59 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                       {!parentUnlocked && <small style={{color:'red'}}>Введите PIN чтобы редактировать награды и настройки</small>}
                     </div>
                   )}
-                  <ChildProfileManager
-                    childProfile={activeChildProfile}
-                    childProfiles={parentChildProfiles}
-                    onCopyLink={copyChildCabinetLink}
-                    onSave={saveChildProfile}
-                    onSelectProfile={setSelectedChildProfileId}
-                    selectedProfileId={selectedChildProfileId}
-                  />
-                  <label className="child-proof-toggle">
-                    <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
-                    <span>Нужны фотографии для подтверждения дел</span>
-                  </label>
+                  {parentChildProfiles.length === 0 ? (
+                    <button className="pixel-button" type="button" onClick={() => setShowAddChildModal(true)}>Добавить ребенка</button>
+                  ) : (
+                    <div>
+                      {parentChildProfiles.map(p => (
+                        <div key={p.id} style={{display:'flex', alignItems:'center', gap:8, padding:4, border: selectedChildProfileId === p.id ? '2px solid #000' : '1px solid #ccc', cursor:'pointer'}} onClick={() => setSelectedChildProfileId(p.id)}>
+                          <PixelAvatar avatar={p.avatar} avatarUrl={p.avatarUrl} small />
+                          <span>{p.name} {p.ageGroup === 'teen' ? '(подросток)' : ''}</span>
+                        </div>
+                      ))}
+                      <button className="tiny-button" type="button" onClick={() => setShowAddChildModal(true)}>Добавить ребенка</button>
+                    </div>
+                  )}
+                  {selectedChildProfileId && parentChildProfiles.length > 0 && (
+                    <ChildProfileManager
+                      childProfile={activeChildProfile}
+                      childProfiles={parentChildProfiles}
+                      onCopyLink={copyChildCabinetLink}
+                      onSave={saveChildProfile}
+                      onSelectProfile={setSelectedChildProfileId}
+                      selectedProfileId={selectedChildProfileId}
+                    />
+                  )}
+                </div>
+              )}
+
+              {showAddChildModal && (
+                <div style={{position: 'fixed', top:0, left:0, right:0, bottom:0, background: 'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100}}>
+                  <div className="pixel-panel" style={{width: '90%', maxWidth: 400, padding:16}}>
+                    <h2>Добавить ребенка</h2>
+                    <label>Имя ребенка (первым делом)
+                      <input value={newChildName} onChange={e=>setNewChildName(e.target.value)} placeholder="Имя" />
+                    </label>
+                    <div style={{display:'flex', gap:8, margin: '8px 0'}}>
+                      <button className={newChildAgeGroup === 'kid' ? 'pixel-button active' : 'pixel-button'} onClick={() => setNewChildAgeGroup('kid')} style={{flex:1}}>Ребёнок (5-11)</button>
+                      <button className={newChildAgeGroup === 'teen' ? 'pixel-button active' : 'pixel-button'} onClick={() => setNewChildAgeGroup('teen')} style={{flex:1}}>Подросток (12-17)</button>
+                    </div>
+                    <label>Регулярные задания (через запятую)
+                      <input value={newChildRegulars} onChange={e=>setNewChildRegulars(e.target.value)} />
+                    </label>
+                    <div style={{display:'flex', gap:8, marginTop:12}}>
+                      <button className="pixel-button" onClick={async () => {
+                        if (!newChildName.trim()) { alert('Введите имя'); return; }
+                        const regs = newChildRegulars.split(',').map(s=>s.trim()).filter(Boolean).map((l,i) => ({id:'reg'+i, label:l, xp:15, stars:1}));
+                        const patch = { create: true, name: newChildName.trim(), ageGroup: newChildAgeGroup, regularTasks: regs };
+                        await saveChildProfile(patch);
+                        setShowAddChildModal(false);
+                        setNewChildName(''); setNewChildRegulars('Помыть посуду,Прибрать комнату');
+                        setStatus('Ребенок добавлен!');
+                      }}>Создать и выбрать</button>
+                      <button className="tiny-button" onClick={() => setShowAddChildModal(false)}>Отмена</button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1769,7 +1788,13 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             sections={sections}
           />
           <div style={{marginTop: '-6px', marginBottom: '8px'}}>
-            <button type="button" className="tiny-button" onClick={loadRecurring}>🔁 Повторить дела из прошлой (recurring)</button>
+            <button type="button" className="tiny-button" onClick={loadRecurring}>🔁 Повторить дела из прошлой уборки</button>
+            {gameMode === 'childQuest' && (
+              <label style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center', fontSize: '12px'}}>
+                <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
+                <span style={{marginLeft: '4px'}}>Нужны фото</span>
+              </label>
+            )}
           </div>
 
           {gameMode !== 'childQuest' && (
@@ -1819,7 +1844,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   />
                 </label>
               )}
-              {gameMode === 'childQuest' && (
+              {gameMode === 'childQuest' && !playOnStars && (
                 <div className={`tier-prize-grid start-prize-grid ${startHints.includes('gold-prize') ? 'field-error' : ''}`}>
                   {prizeTiers.map((tier) => (
                     <label key={tier.id} className={tier.id === 'gold' && startHints.includes('gold-prize') ? 'field-error' : ''}>
@@ -1847,6 +1872,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   ))}
                   <p className="hint">* Обязателен только приз за золото. Серебро и бронза — по желанию.</p>
                 </div>
+              )}
+              {gameMode === 'childQuest' && playOnStars && activeChildProfile && (
+                <p className="hint">Игра на звезды из цели: Золото {activeChildProfile.starRules?.gold || 3}★, Серебро {activeChildProfile.starRules?.silver || 2}★, Бронза {activeChildProfile.starRules?.bronze || 1}★. <button className="tiny-button" onClick={() => alert('Отредактируйте в профиле ребенка')}>Изменить</button></p>
               )}
               {startHints.length > 0 && (
                 <p className="start-blocker-hint">Заполните подсвеченные поля, чтобы запустить игру.</p>
@@ -2305,7 +2333,7 @@ function ChildProfileManager({
           Сохранить профиль
         </button>
         <button className="tiny-button alt" disabled={!selectedProfileId} type="button" onClick={onCopyLink}>
-          Ссылка ребёнку
+          Ссылка на ЛК ребёнка (копировать)
         </button>
       </div>
 
@@ -2439,16 +2467,56 @@ function ChildProfileManager({
 
       <section className="child-profile-section">
         <h3>Содержимое лутбоксов</h3>
-        <input 
-          value={(childProfile?.lootboxRewards || []).join(', ')} 
-          placeholder="+20xp, +1 звезда, potion, candy" 
-          onChange={e => {
-            const lootList = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-            ;(window as any)._pendingLootbox = lootList
-          }}
-        />
-        <small>Родитель настраивает, что может выпасть. Лутбокс после игры или за регулярные.</small>
+        <label style={{display:'flex', alignItems:'center', gap:4}}>
+          <input type="checkbox" checked={!!(childProfile?.lootboxRewards && childProfile.lootboxRewards.length > 0)} onChange={e => {
+            const enabled = e.target.checked;
+            const def = enabled ? ['Опыт', 'Звезда', 'Зелье'] : [];
+            (window as any)._pendingLootbox = def;
+            // force re render
+          }} /> Лутбоксы включены (минимум 2 или выкл)
+        </label>
+        {['Опыт (+XP)', 'Звезда (+звёзды)', 'Зелье (бонус в игре, доп. баллы)', 'Конфетка (реальная сладость)', 'Другое'].map(opt => {
+          const current = (childProfile?.lootboxRewards || []);
+          const isChecked = current.some(c => c.includes(opt.split(' ')[0]));
+          return (
+            <label key={opt} style={{display:'block'}}>
+              <input type="checkbox" checked={isChecked} onChange={e => {
+                let list = [...(current || [])];
+                const key = opt.split(' ')[0];
+                if (e.target.checked) {
+                  if (!list.some(l => l.includes(key))) list.push(key === 'Другое' ? 'Другое: ' : key);
+                } else {
+                  list = list.filter(l => !l.includes(key));
+                }
+                (window as any)._pendingLootbox = list;
+              }} /> {opt}
+            </label>
+          );
+        })}
+        <input placeholder="Если Другое: опишите здесь" onChange={e => {
+          const list = (window as any)._pendingLootbox || [];
+          const idx = list.findIndex((l:string) => l.startsWith('Другое'));
+          if (idx >=0) list[idx] = 'Другое: ' + e.target.value;
+          (window as any)._pendingLootbox = list;
+        }} />
+        <small>Выберите 2+ . Зелье: дает бонусы. Конфетка: купите ребенку сладость. Другое: свое.</small>
       </section>
+      {childProfile && childProfile.pendingRegulars && childProfile.pendingRegulars.length > 0 && (
+        <section className="child-profile-section">
+          <h3>Ожидают подтверждения от ребенка</h3>
+          {childProfile.pendingRegulars.map((p: any, i: number) => (
+            <div key={i} className="history-row">
+              <span>{p.label} (+{p.xp} XP +{p.stars}★)</span>
+              <button className="tiny-button" onClick={async () => {
+                const newXp = (childProfile.xp || 0) + p.xp
+                const newStars = (childProfile.starBalance || 0) + p.stars
+                const remaining = (childProfile.pendingRegulars || []).filter((_,ii) => ii !== i)
+                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining })
+              }}>Подтвердить</button>
+            </div>
+          ))}
+        </section>
+      )}
       {childProfile && (
         <p className="hint">
           Баланс: {childProfile.starBalance} <StarSprite small /> · Кабинет: /child/{childProfile.id}
@@ -2594,25 +2662,24 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           <div key={task.id} className="history-row" style={{display:'flex', justifyContent:'space-between'}}>
             <span>{task.label} (+{task.xp} XP, +{task.stars}★)</span>
             <button className="tiny-button" onClick={async () => {
-              const newXp = (profile.xp || 0) + task.xp
-              const newStars = (profile.starBalance || 0) + task.stars
-              const newProfile = {...profile, xp: newXp, starBalance: newStars}
+              const pending = [...(profile.pendingRegulars || []), { ...task, doneAt: new Date().toISOString() }]
+              const newProfile = {...profile, pendingRegulars: pending}
               setProfile(newProfile as any)
               try {
                 await api(`/api/child-profiles/${profileId}`, {
                   method: 'POST',
-                  body: JSON.stringify({ xp: newXp, starBalance: newStars })
+                  body: JSON.stringify({ pendingRegulars: pending })
                 })
-                setStatus(`+${task.xp} XP и +${task.stars}★ за "${task.label}"!`)
-              } catch(e) { setStatus('Сохранено локально (сервер недоступен)') }
-            }}>Выполнить</button>
+                setStatus(`Отмечено "${task.label}" — ждет подтверждения родителя`)
+              } catch(e) { setStatus('Отмечено локально') }
+            }}>Отметить (ждет подтверждения)</button>
           </div>
         ))}
       </div>
 
       {/* Lootbox */}
       <div className="pixel-panel" style={{marginBottom:12}}>
-        <h3>Лутбокс</h3>
+        <h3>Лутбокс <img src="/avatars/lootbox.svg" alt="сундук" style={{width:24, verticalAlign:'middle'}} /></h3>
         <p className="hint">Выполни несколько регулярных за неделю или набери очки в игре — получи лутбокс!</p>
         <button className="pixel-button" onClick={async () => {
           const rewards = profile.lootboxRewards || ['+20xp', '+1 звезда', 'potion']

@@ -46,6 +46,7 @@ export type ChildProfile = {
   unlockedCosmetics?: string[]
   regularTasks?: Array<{ id: string; label: string; xp: number; stars: number }>
   lootboxRewards?: string[]  // e.g. ['+30xp', '+2stars', 'potion']
+  pendingRegulars?: Array<{ id: string; label: string; xp: number; stars: number; doneAt?: string }>
   createdAt: string
   updatedAt: string
 }

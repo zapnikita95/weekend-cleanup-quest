@@ -1,0 +1,14 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Chest body -->
+  <rect x="8" y="24" width="48" height="32" rx="2" fill="#8B4513" stroke="#3E2723" stroke-width="2"/>
+  <!-- Lid -->
+  <rect x="6" y="16" width="52" height="12" rx="2" fill="#A0522D" stroke="#3E2723" stroke-width="2"/>
+  <!-- Lock -->
+  <rect x="28" y="28" width="8" height="8" fill="#FFD700" stroke="#B8860B" stroke-width="1"/>
+  <circle cx="32" cy="32" r="2" fill="#B8860B"/>
+  <!-- Sparkles -->
+  <path d="M16 20 L18 24 L22 22" stroke="#FFD700" stroke-width="1.5"/>
+  <path d="M42 18 L44 22 L48 20" stroke="#FFD700" stroke-width="1.5"/>
+  <circle cx="20" cy="40" r="1.5" fill="#FFD700"/>
+  <circle cx="48" cy="36" r="1" fill="#FFD700"/>
+</svg>

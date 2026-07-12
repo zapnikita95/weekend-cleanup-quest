@@ -156,11 +156,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   xp: 0,
   equippedCosmetics: {},
   unlockedCosmetics: [],
-  regularTasks: [
-    { id: 'dishes-daily', label: 'Помыть посуду', xp: 15, stars: 1 },
-    { id: 'room-tidy', label: 'Прибрать в своей комнате', xp: 20, stars: 1 },
-    { id: 'trash', label: 'Вынести мусор', xp: 10, stars: 1 },
-  ],
+  regularTasks: [],
   lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
