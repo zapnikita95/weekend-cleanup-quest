@@ -152,6 +152,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   ageGroup: ageGroup === 'teen' ? 'teen' : 'kid',
   currentGoal: undefined,
   moneyRate: ageGroup === 'teen' ? 25 : 15, // руб за звезду
+  skillLevels: {},
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 })
@@ -190,6 +191,7 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
     ? { label: String(profile.currentGoal.label), starsTarget: Number(profile.currentGoal.starsTarget) }
     : fallback.currentGoal || undefined,
   moneyRate: Number(profile.moneyRate ?? fallback.moneyRate ?? (profile.ageGroup === 'teen' ? 25 : 15)),
+  skillLevels: profile.skillLevels && typeof profile.skillLevels === 'object' ? profile.skillLevels : fallback.skillLevels || {},
   createdAt: profile.createdAt || fallback.createdAt || new Date().toISOString(),
   updatedAt: profile.updatedAt || fallback.updatedAt || new Date().toISOString(),
 })
@@ -208,21 +210,39 @@ const applyChildOutcome = (db, outcome, gameId) => {
     categoryCounts[icon] = (categoryCounts[icon] || 0) + count
   }
 
+  // Skill tree progression (RPG)
+  const prevSkillLevels = previous.skillLevels || {}
+  const newSkillLevels = {}
+  let skillBonusStars = 0
+  const skillKeys = ['kitchen', 'bath', 'bedroom', 'living', 'hall', 'garden']
+  skillKeys.forEach(key => {
+    const count = categoryCounts[key] || 0
+    const newLvl = Math.floor(count / 4) + 1
+    const oldLvl = prevSkillLevels[key] || 1
+    newSkillLevels[key] = newLvl
+    if (newLvl > oldLvl) {
+      skillBonusStars += (newLvl - oldLvl) * 2
+    }
+  })
+
+  const totalStarsThisQuest = starsEarned + skillBonusStars
+
   const ledgerEntry = {
     id: makeId(),
     gameId,
-    stars: starsEarned,
+    stars: totalStarsThisQuest,
     tier: String(outcome.tier || 'none'),
-    note: String(outcome.prizeLabel || outcome.note || 'Квест завершён'),
+    note: String(outcome.prizeLabel || outcome.note || 'Квест завершён') + (skillBonusStars > 0 ? ` (+${skillBonusStars} за навыки)` : ''),
     createdAt: new Date().toISOString(),
   }
 
   db.childProfiles[profileId] = sanitizeChildProfile({
     ...previous,
-    starBalance: Number(previous.starBalance || 0) + starsEarned,
+    starBalance: Number(previous.starBalance || 0) + totalStarsThisQuest,
     totalQuests: Number(previous.totalQuests || 0) + 1,
     categoryCounts,
     achievementIds: unlockAchievements(categoryCounts, previous.achievementIds || []),
+    skillLevels: newSkillLevels,
     ledger: [...(previous.ledger || []), ledgerEntry],
     updatedAt: new Date().toISOString(),
   })
@@ -425,7 +445,14 @@ const completeActiveChore = async (gameId, request, response) => {
 
   game.chores = game.chores.map((chore) =>
     chore.id === target.id && chore.assignedTo === playerIndex
-      ? { ...chore, completed: true, completedAt: Date.now(), actualMinutes, proofPhotoUrl }
+      ? { 
+          ...chore, 
+          completed: true, 
+          completedAt: Date.now(), 
+          actualMinutes, 
+          proofPhotoUrl,
+          approved: !game.requirePhotoProof   // if photo required, wait for parent approval
+        }
       : chore,
   )
   game.updatedAt = completedAt
@@ -501,6 +528,26 @@ const approveActiveExtraChore = async (gameId, request, response) => {
   game.chores = (game.chores || []).map((chore) =>
     chore.id === choreId && chore.extra
       ? { ...chore, difficulty, partnerRating, approved: true, reviewBy: undefined }
+      : chore,
+  )
+  game.updatedAt = new Date().toISOString()
+  db.activeGames[gameId] = game
+  writeDb(db)
+  sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+}
+
+const approvePhotoChore = async (gameId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const game = db.activeGames[gameId]
+  if (!game) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+  const choreId = String(body.choreId || '')
+  game.chores = (game.chores || []).map((chore) =>
+    chore.id === choreId 
+      ? { ...chore, approved: true }
       : chore,
   )
   game.updatedAt = new Date().toISOString()
@@ -938,6 +985,10 @@ const server = createServer(async (request, response) => {
     }
     if (activeRoute && request.method === 'POST' && activeRoute.action === 'approve-extra') {
       await approveActiveExtraChore(activeRoute.id, request, response)
+      return
+    }
+    if (activeRoute && request.method === 'POST' && activeRoute.action === 'approve-photo') {
+      await approvePhotoChore(activeRoute.id, request, response)
       return
     }
     if (activeRoute && request.method === 'POST' && activeRoute.action === 'rate') {

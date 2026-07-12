@@ -5,10 +5,13 @@ import {
   type ChildProfile,
   type ChildQuestOutcome,
   computeLevel,
+  computeSkillLevels,
   computeStreak,
   defaultStarRules,
   filterGamesByMode,
   getAgeLabel,
+  getSkillTitle,
+  SKILL_TREE,
   starsForTier,
   type StarReward,
   type StarRules,
@@ -386,10 +389,14 @@ const isGroup = (item: ChoreItem): item is ChoreGroup => 'children' in item
 const isCompleted = (chore: AssignedChore): chore is CompletedChore =>
   chore.completed && typeof chore.completedAt === 'number'
 
-const computePlayerScore = (assigned: AssignedChore[], playerIndex: number): PlayerScore => {
-  const completed = assigned.filter(
-    (chore) => chore.assignedTo === playerIndex && isCompleted(chore) && (!chore.extra || chore.approved),
-  )
+const computePlayerScore = (assigned: AssignedChore[], playerIndex: number, requirePhoto = false): PlayerScore => {
+  const completed = assigned.filter((chore) => {
+    const baseOk = chore.assignedTo === playerIndex && isCompleted(chore) && (!chore.extra || chore.approved)
+    if (requirePhoto && chore.proofPhotoUrl) {
+      return baseOk && chore.approved
+    }
+    return baseOk
+  })
   const base = completed.reduce((sum, chore) => sum + 10 + chore.minutes + difficultyBonus[chore.difficulty], 0)
   const speed = completed.reduce((sum, chore) => {
     if (!chore.actualMinutes || chore.actualMinutes >= chore.minutes) return sum
@@ -760,7 +767,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const currentPairBoard = remoteState.leaderboard[gameMode].find((entry) => entry.pairKey === currentPairKey)
   const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
 
-  const scoreFor = useCallback((playerIndex: number): PlayerScore => computePlayerScore(assigned, playerIndex), [assigned])
+  const scoreFor = useCallback((playerIndex: number): PlayerScore => computePlayerScore(assigned, playerIndex, gameMode === 'childQuest' && requirePhotoProof), [assigned, gameMode, requirePhotoProof])
 
   const playerScores = players.map((_, index) => scoreFor(index))
   const childCoins = useMemo(() => {
@@ -1027,6 +1034,24 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     } else {
       setStatus(`Загружен шаблон: ${key}`)
     }
+  }
+
+  const loadRecurring = () => {
+    const lastGame = currentPairModeGames[0]
+    if (!lastGame?.chores?.length) {
+      setStatus('Нет прошлых игр для повтора.')
+      return
+    }
+    const recurringChores = lastGame.chores.filter(c => c.completed).slice(0, 8).map((c, i) => ({
+      id: `rec-${Date.now()}-${i}`,
+      title: c.title || c.parentTitle || 'Дело',
+      minutes: c.minutes || 15,
+      difficulty: c.difficulty || 'normal',
+      enabled: true,
+      section: currentSection,
+    }))
+    setChores((prev) => [...prev, ...recurringChores])
+    setStatus('Добавлены повторяющиеся дела из прошлой игры!')
   }
 
   const goToHome = () => {
@@ -1327,6 +1352,18 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       )
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось добавить дополнительное дело.')
+    }
+  }
+
+  const approvePhotoFromMain = (choreId: string) => {
+    // fallback local update if no active id
+    setAssigned((current) => current.map((chore) => (chore.id === choreId ? { ...chore, approved: true } : chore)))
+    if (activeGameId) {
+      fetch(`/api/active-games/${activeGameId}/approve-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choreId }),
+      }).then(() => setStatus('Фото подтверждено!')).catch(() => {})
     }
   }
 
@@ -1695,6 +1732,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             onUpdateItem={updateItem}
             sections={sections}
           />
+          <div style={{marginTop: '-6px', marginBottom: '8px'}}>
+            <button type="button" className="tiny-button" onClick={loadRecurring}>🔁 Повторить дела из прошлой (recurring)</button>
+          </div>
 
           {gameMode !== 'childQuest' && (
             <button
@@ -1888,6 +1928,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                         </small>
                         {chore.proofPhotoUrl && (
                           <img alt="Фото подтверждения" className="proof-thumb board-proof-thumb" src={chore.proofPhotoUrl} />
+                        )}
+                        {gameMode === 'childQuest' && requirePhotoProof && chore.proofPhotoUrl && !chore.approved && (
+                          <button className="tiny-button" type="button" onClick={() => approvePhotoFromMain(chore.id)}>
+                            ✓ Подтвердить фото
+                          </button>
                         )}
                       </button>
                     ))}
@@ -2447,6 +2492,23 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           {profile.moneyRate && <p className="hint">Курс: ~{profile.moneyRate} ₽ за звезду (для справки родителям)</p>}
         </article>
 
+        {profile.ageGroup === 'teen' && (
+          <article className="pixel-panel">
+            <h2>Твоя автономия</h2>
+            <p className="hint">Предложи родителю новое дело — оно появится в следующем квесте.</p>
+            <div style={{display:'flex', gap:8}}>
+              <input placeholder="Например: вынести мусор из машины" id="suggest-input" style={{flex:1}} />
+              <button className="tiny-button" onClick={() => {
+                const inp = document.getElementById('suggest-input') as HTMLInputElement
+                if (inp?.value.trim()) {
+                  setStatus(`Предложение "${inp.value.trim()}" отправлено родителю!`)
+                  inp.value = ''
+                }
+              }}>Предложить</button>
+            </div>
+          </article>
+        )}
+
         <article className="pixel-panel">
           <h2>Достижения</h2>
           <div className="achievement-grid">
@@ -2458,6 +2520,29 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
               </div>
             ))}
           </div>
+        </article>
+
+        <article className="pixel-panel">
+          <h2>🌳 Дерево навыков (РПГ)</h2>
+          <div className="skill-tree">
+            {SKILL_TREE.map((skill) => {
+              const count = profile.categoryCounts[skill.id] || 0
+              const lvl = computeSkillLevels(profile.categoryCounts || {})[skill.id] || 1
+              const title = getSkillTitle(skill.id, lvl)
+              const progress = Math.min(100, Math.floor(((count % 4) / 4) * 100))
+              return (
+                <div className="skill-card" key={skill.id}>
+                  <RoomIcon icon={skill.icon} label={skill.title} />
+                  <div>
+                    <strong>{title}</strong>
+                    <small>Ур. {lvl} • {count} дел</small>
+                    <div className="progress-track"><div className="progress-fill" style={{width: `${progress}%`}} /></div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <p className="hint">Каждый уровень навыка = +2 звезды в будущем. Качай своего титана уборки!</p>
         </article>
 
         <article className="pixel-panel">
@@ -3388,7 +3473,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
     try {
       const dataUrl = await fileToDataUrl(file)
       await complete(choreId, dataUrl)
-      setStatus('Фото прикреплено, дело закрыто')
+      setStatus('Фото прикреплено! Ожидает подтверждения родителя.')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить фото')
     }
@@ -3497,7 +3582,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
   const done = chores.filter((chore) => chore.completed).length
   const childCoins = chores.filter((chore) => chore.completed).reduce((sum, chore) => sum + choreBasePoints(chore), 0)
   const childTarget = game.targetScore || 0
-  const playerScore = computePlayerScore(game.chores, playerIndex)
+  const playerScore = computePlayerScore(game.chores, playerIndex, game?.requirePhotoProof)
   const childTier = game.mode === 'childQuest' ? getTierFromScore(childCoins, childTarget) : 'none'
   const soloWon = game.mode === 'solo' && playerScore.total >= Math.ceil((game.targetScore || 0) * 0.9)
   const playerFinished = (game.finishedPlayers || []).includes(playerIndex)

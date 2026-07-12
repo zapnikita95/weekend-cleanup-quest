@@ -66,6 +66,34 @@ export const CATEGORY_ACHIEVEMENTS = [
   { id: 'hall_keeper', icon: 'hall', title: 'Хранитель прихожей', threshold: 5 },
 ] as const
 
+// RPG Skill Tree
+export const SKILL_TREE = [
+  { id: 'kitchen', icon: 'kitchen', title: 'Кухня', desc: 'Мастер посуды и готовки' },
+  { id: 'bath', icon: 'bath', title: 'Ванная', desc: 'Гигиена и чистота' },
+  { id: 'bedroom', icon: 'bedroom', title: 'Спальня', desc: 'Порядок в личном пространстве' },
+  { id: 'living', icon: 'living', title: 'Гостиная', desc: 'Общие зоны' },
+  { id: 'hall', icon: 'hall', title: 'Прихожая', desc: 'Вход и хранение' },
+  { id: 'garden', icon: 'garden', title: 'Двор / Сад', desc: 'Наружные работы' },
+] as const
+
+export type Skill = typeof SKILL_TREE[number]
+
+export const getSkillLevel = (count: number): number => Math.floor((count || 0) / 4) + 1
+
+export const getSkillTitle = (skillId: string, level: number): string => {
+  const base = SKILL_TREE.find(s => s.id === skillId)?.title || 'Навык'
+  if (level >= 5) return `Гений ${base.toLowerCase()}`
+  if (level >= 4) return `Мастер ${base.toLowerCase()}`
+  if (level >= 3) return `Эксперт ${base.toLowerCase()}`
+  if (level >= 2) return `Ученик ${base.toLowerCase()}`
+  return base
+}
+
+export const getSkillBonusStars = (oldLevel: number, newLevel: number): number => {
+  if (newLevel > oldLevel) return (newLevel - oldLevel) * 2 // +2 stars per level up
+  return 0
+}
+
 export const ROOM_ICON_TO_KEY: Record<string, string> = {
   bath: 'bath',
   kitchen: 'kitchen',
@@ -119,6 +147,14 @@ export const filterGamesByMode = <T extends { mode?: GameMode }>(games: T[], mod
 export const computeLevel = (totalQuests: number, starBalance: number): number => {
   // Simple satisfying progression: quests primary + stars bonus
   return 1 + Math.floor(totalQuests / 3) + Math.floor(starBalance / 12)
+}
+
+export const computeSkillLevels = (categoryCounts: Record<string, number>): Record<string, number> => {
+  const levels: Record<string, number> = {}
+  SKILL_TREE.forEach(skill => {
+    levels[skill.id] = getSkillLevel(categoryCounts[skill.id] || 0)
+  })
+  return levels
 }
 
 export const computeStreak = (ledger: ChildLedgerEntry[]): number => {

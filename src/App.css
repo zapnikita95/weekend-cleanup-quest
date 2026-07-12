@@ -745,6 +745,33 @@ label {
   box-shadow: 4px 4px 0 var(--ink);
 }
 
+.skill-tree {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.skill-card {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border: 3px solid var(--ink);
+  background: rgba(200, 230, 255, 0.4);
+  padding: 10px;
+  font-size: 13px;
+}
+
+.skill-card .progress-track {
+  height: 6px;
+  background: #ddd;
+  margin-top: 4px;
+}
+
+.skill-card .progress-fill {
+  height: 100%;
+  background: #4a90e2;
+}
+
 .stats-child-hero {
   display: flex;
   align-items: center;
