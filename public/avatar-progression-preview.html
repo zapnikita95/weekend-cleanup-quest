@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tidy Titans — avatar progression preview</title>
+  <style>
+    :root {
+      --ink: #1f183d;
+      --sun: #ffd95a;
+      --pink: #ff79b8;
+      --aqua: #66e3ff;
+      --panel: #fffaf0;
+      font-family: "Courier New", monospace;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.07) 2px, transparent 2px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.07) 2px, transparent 2px),
+        linear-gradient(135deg, #211642, #342063 52%, #1a1638);
+      background-size: 32px 32px, 32px 32px, auto;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 28px;
+    }
+
+    main {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    header,
+    .card {
+      border: 4px solid var(--ink);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 245, 200, 0.9));
+      box-shadow: 0 0 0 4px #6545c6, 8px 8px 0 rgba(25, 18, 49, 0.28);
+    }
+
+    header {
+      margin-bottom: 22px;
+      padding: 18px;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      text-shadow: 2px 2px 0 var(--sun);
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: #6b5875;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      padding: 18px 14px;
+      text-align: center;
+    }
+
+    .stage {
+      display: grid;
+      width: 128px;
+      height: 128px;
+      place-items: center;
+      border: 3px dashed rgba(31, 24, 61, 0.28);
+      background:
+        linear-gradient(90deg, rgba(31, 24, 61, 0.07) 1px, transparent 1px),
+        linear-gradient(rgba(31, 24, 61, 0.07) 1px, transparent 1px),
+        rgba(255, 250, 240, 0.86);
+      background-size: 16px 16px;
+    }
+
+    .avatar-container {
+      position: relative;
+      width: 88px;
+      height: 88px;
+      overflow: visible;
+    }
+
+    .avatar-container img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      image-rendering: pixelated;
+    }
+
+    .avatar-container .base {
+      z-index: 2;
+    }
+
+    .avatar-container .accessory {
+      pointer-events: none;
+    }
+
+    .avatar-container .cloak {
+      z-index: 1;
+    }
+
+    .avatar-container .staff {
+      z-index: 3;
+    }
+
+    .avatar-container .hat {
+      top: -19px;
+      z-index: 5;
+    }
+
+    .avatar-container .pet,
+    .avatar-container .potion {
+      z-index: 6;
+    }
+
+    .label {
+      min-height: 46px;
+    }
+
+    .label strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 16px;
+    }
+
+    .items {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      min-height: 28px;
+    }
+
+    .pill {
+      border: 2px solid var(--ink);
+      background: var(--aqua);
+      padding: 4px 6px;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      box-shadow: 2px 2px 0 var(--ink);
+    }
+
+    @media (max-width: 560px) {
+      body {
+        padding: 14px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Avatar Progression Preview</h1>
+      <p>10 примеров на текущих аватарах Tidy Titans. Все предметы используют одни и те же координаты наложения: плащ сзади, база персонажа, посох, корона, питомец/зелье.</p>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="base" src="/avatars/duck.svg" alt="" />
+            <img class="accessory hat" src="/avatars/accessories/hat-crown.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Duck · level 2</strong>Корона отдельно</div>
+        <div class="items"><span class="pill">crown</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="base" src="/avatars/fox.svg" alt="" />
+            <img class="accessory staff" src="/avatars/accessories/staff.svg" alt="" />
+            <img class="accessory hat" src="/avatars/accessories/hat-crown.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Fox · level 4</strong>Корона + посох</div>
+        <div class="items"><span class="pill">crown</span><span class="pill">staff</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="accessory cloak" src="/avatars/accessories/cloak.svg" alt="" />
+            <img class="base" src="/avatars/cat.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Cat · level 3</strong>Плащ за персонажем</div>
+        <div class="items"><span class="pill">cloak</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="base" src="/avatars/robot.svg" alt="" />
+            <img class="accessory staff" src="/avatars/accessories/staff.svg" alt="" />
+            <img class="accessory potion" src="/avatars/accessories/potion.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Robot · level 6</strong>Посох + зелье</div>
+        <div class="items"><span class="pill">staff</span><span class="pill">potion</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="accessory cloak" src="/avatars/accessories/cloak.svg" alt="" />
+            <img class="base" src="/avatars/frog.svg" alt="" />
+            <img class="accessory pet" src="/avatars/accessories/pet-slime.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Frog · level 5</strong>Плащ + питомец</div>
+        <div class="items"><span class="pill">cloak</span><span class="pill">pet</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="accessory cloak" src="/avatars/accessories/cloak.svg" alt="" />
+            <img class="base" src="/avatars/wizard.svg" alt="" />
+            <img class="accessory staff" src="/avatars/accessories/staff.svg" alt="" />
+            <img class="accessory hat" src="/avatars/accessories/hat-crown.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Wizard · level 4</strong>Плащ + корона + посох</div>
+        <div class="items"><span class="pill">cloak</span><span class="pill">crown</span><span class="pill">staff</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="base" src="/avatars/dragon.svg" alt="" />
+            <img class="accessory hat" src="/avatars/accessories/hat-crown.svg" alt="" />
+            <img class="accessory pet" src="/avatars/accessories/pet-slime.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Dragon · level 5</strong>Корона + питомец</div>
+        <div class="items"><span class="pill">crown</span><span class="pill">pet</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="base" src="/avatars/ninja.svg" alt="" />
+            <img class="accessory staff" src="/avatars/accessories/staff.svg" alt="" />
+            <img class="accessory potion" src="/avatars/accessories/potion.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Ninja · level 6</strong>Посох + зелье</div>
+        <div class="items"><span class="pill">staff</span><span class="pill">potion</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="accessory cloak" src="/avatars/accessories/cloak.svg" alt="" />
+            <img class="base" src="/avatars/queen.svg" alt="" />
+            <img class="accessory hat" src="/avatars/accessories/hat-crown.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Queen · level 3</strong>Плащ + корона</div>
+        <div class="items"><span class="pill">cloak</span><span class="pill">crown</span></div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <div class="avatar-container">
+            <img class="accessory cloak" src="/avatars/accessories/cloak.svg" alt="" />
+            <img class="base" src="/avatars/slime.svg" alt="" />
+            <img class="accessory staff" src="/avatars/accessories/staff.svg" alt="" />
+            <img class="accessory hat" src="/avatars/accessories/hat-crown.svg" alt="" />
+            <img class="accessory pet" src="/avatars/accessories/pet-slime.svg" alt="" />
+            <img class="accessory potion" src="/avatars/accessories/potion.svg" alt="" />
+          </div>
+        </div>
+        <div class="label"><strong>Slime · level 6</strong>Полный набор предметов</div>
+        <div class="items"><span class="pill">cloak</span><span class="pill">crown</span><span class="pill">staff</span><span class="pill">pet</span><span class="pill">potion</span></div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
