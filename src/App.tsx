@@ -2565,8 +2565,10 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                 <div key={slot} style={{marginBottom:6}}>
                   <strong>{slot}:</strong>
                   <select value={current || ''} onChange={e => {
-                    const next = {...(profile.equippedCosmetics || {}), [slot]: e.target.value || undefined}
-                    if (!e.target.value) delete next[slot]
+                    const val = e.target.value || undefined
+                    const next = {...(profile.equippedCosmetics || {})}
+                    if (val) next[slot] = val
+                    else delete next[slot]
                     // local update + save
                     const newProfile = {...profile, equippedCosmetics: next}
                     setProfile(newProfile as any)
@@ -2574,7 +2576,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                     api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({equippedCosmetics: next})}).catch(()=>{})
                   }}>
                     <option value="">— нет —</option>
-                    {unlocked.map(item => <option key={item} value={item.replace(slot+'-','')}>{item}</option>)}
+                    {unlocked.map(item => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </div>
               )
