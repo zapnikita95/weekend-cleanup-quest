@@ -1490,6 +1490,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       <header className="topbar pixel-panel">
         <div>
           <h1>Tidy Titans</h1>
+          <p className="app-subtitle">Уборка как игра</p>
           <label className={`pair-email-label ${startHints.includes('email') ? 'field-error' : ''}`}>
             Введите почту, чтобы сохранить или загрузить игру
             <span className="email-load-row">
