@@ -13,6 +13,8 @@ import {
   getSkillTitle,
   getCategorySkillBonus,
   getActiveSkillBuffs,
+  getLevelFromXp,
+  xpForNextLevel,
   SKILL_TREE,
   starsForTier,
   type StarReward,
@@ -2277,6 +2279,8 @@ function ChildProfileManager({
     if (goalLabel.trim() && goalTarget > 0) {
       patch.currentGoal = { label: goalLabel.trim(), starsTarget: goalTarget }
     }
+    const pendingLoot = (window as any)._pendingLootbox
+    if (pendingLoot && pendingLoot.length) patch.lootboxRewards = pendingLoot
     onSave(patch)
   }
 
@@ -2425,6 +2429,26 @@ function ChildProfileManager({
           + награда
         </button>
       </section>
+
+      {/* Parent config for regular tasks and lootboxes */}
+      <section className="child-profile-section">
+        <h3>Регулярные задания (для ежедневного выполнения)</h3>
+        <p className="hint">Ребёнок сможет отмечать их в своём кабинете и получать XP/звёзды.</p>
+        {/* For simplicity, static in this version; parent can edit via profile later */}
+      </section>
+
+      <section className="child-profile-section">
+        <h3>Содержимое лутбоксов</h3>
+        <input 
+          value={(childProfile?.lootboxRewards || []).join(', ')} 
+          placeholder="+20xp, +1 звезда, potion, candy" 
+          onChange={e => {
+            const lootList = e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+            ;(window as any)._pendingLootbox = lootList
+          }}
+        />
+        <small>Родитель настраивает, что может выпасть. Лутбокс после игры или за регулярные.</small>
+      </section>
       {childProfile && (
         <p className="hint">
           Баланс: {childProfile.starBalance} <StarSprite small /> · Кабинет: /child/{childProfile.id}
@@ -2442,7 +2466,11 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const loadProfile = useCallback(async () => {
     try {
       const result = await api<{ profile: ChildProfile; games: GameRecord[] }>(`/api/child-profiles/${profileId}`)
-      setProfile(result.profile)
+      const prof = result.profile
+      const lvl = getLevelFromXp(prof.xp || 0)
+      const autoUnlocked = ['hat-crown', 'cloak', 'staff', 'pet-slime', 'potion'].filter((_,i) => i+2 <= lvl)
+      prof.unlockedCosmetics = Array.from(new Set([...(prof.unlockedCosmetics||[]), ...autoUnlocked]))
+      setProfile(prof)
       setGames(result.games)
       setStatus('')
 
@@ -2499,7 +2527,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
       {status && <p className="app-toast">{status}</p>}
       <header className="topbar pixel-panel child-cabinet-header">
         <div className="child-cabinet-hero">
-          <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} />
+          <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} cosmetics={profile.equippedCosmetics || {}} />
           <div>
             <p className="eyebrow">{ageLabel} · Ур.{level} {streak > 1 ? `🔥 ${streak} дн.` : ''}</p>
             <h1>{profile.name}</h1>
@@ -2512,6 +2540,98 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           </div>
         </div>
       </header>
+
+      {/* XP and Avatar Progression */}
+      <div className="pixel-panel" style={{marginBottom: 12}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+          <strong>Опыт: {profile.xp || 0} / {xpForNextLevel(profile.xp || 0) + (profile.xp || 0)} (Ур. {getLevelFromXp(profile.xp || 0)})</strong>
+          <small>До след. уровня: {xpForNextLevel(profile.xp || 0)} XP</small>
+        </div>
+        <div className="progress-track" style={{marginTop:4}}><div className="progress-fill" style={{width: `${Math.min(100, ((profile.xp||0) % 50) * 2)}%`, background:'#4CAF50'}} /></div>
+      </div>
+
+      {/* Avatar Customization */}
+      <div className="pixel-panel" style={{marginBottom:12}}>
+        <h3>Персонаж — прокачка аватара</h3>
+        <div style={{display:'flex', gap:16, alignItems:'flex-start'}}>
+          <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} cosmetics={profile.equippedCosmetics || {}} />
+          <div style={{flex:1}}>
+            <p className="hint">Разблокируй предметы по уровням. Экипируй чтобы визуально прокачивать персонажа!</p>
+            {['hat','cloak','staff','pet','potion'].map(slot => {
+              const current = (profile.equippedCosmetics || {})[slot]
+              const unlocked = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot))
+              if (!unlocked.length) return null
+              return (
+                <div key={slot} style={{marginBottom:6}}>
+                  <strong>{slot}:</strong>
+                  <select value={current || ''} onChange={e => {
+                    const next = {...(profile.equippedCosmetics || {}), [slot]: e.target.value || undefined}
+                    if (!e.target.value) delete next[slot]
+                    // local update + save
+                    const newProfile = {...profile, equippedCosmetics: next}
+                    setProfile(newProfile as any)
+                    // save to server
+                    api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({equippedCosmetics: next})}).catch(()=>{})
+                  }}>
+                    <option value="">— нет —</option>
+                    {unlocked.map(item => <option key={item} value={item.replace(slot+'-','')}>{item}</option>)}
+                  </select>
+                </div>
+              )
+            })}
+            <small>Уровни открывают новые предметы (корона, плащ, посох, питомец, зелье)</small>
+          </div>
+        </div>
+      </div>
+
+      {/* Regular Tasks - child can complete for XP/stars */}
+      <div className="pixel-panel" style={{marginBottom:12}}>
+        <h3>Регулярные дела (можно выполнять каждый день)</h3>
+        <p className="hint">Отметь выполненное — получишь опыт и звёзды (родитель увидит в отчёте).</p>
+        {(profile.regularTasks || []).map((task: any) => (
+          <div key={task.id} className="history-row" style={{display:'flex', justifyContent:'space-between'}}>
+            <span>{task.label} (+{task.xp} XP, +{task.stars}★)</span>
+            <button className="tiny-button" onClick={async () => {
+              const newXp = (profile.xp || 0) + task.xp
+              const newStars = (profile.starBalance || 0) + task.stars
+              const newProfile = {...profile, xp: newXp, starBalance: newStars}
+              setProfile(newProfile as any)
+              try {
+                await api(`/api/child-profiles/${profileId}`, {
+                  method: 'POST',
+                  body: JSON.stringify({ xp: newXp, starBalance: newStars })
+                })
+                setStatus(`+${task.xp} XP и +${task.stars}★ за "${task.label}"!`)
+              } catch(e) { setStatus('Сохранено локально (сервер недоступен)') }
+            }}>Выполнить</button>
+          </div>
+        ))}
+      </div>
+
+      {/* Lootbox */}
+      <div className="pixel-panel" style={{marginBottom:12}}>
+        <h3>Лутбокс</h3>
+        <p className="hint">Выполни несколько регулярных за неделю или набери очки в игре — получи лутбокс!</p>
+        <button className="pixel-button" onClick={async () => {
+          const rewards = profile.lootboxRewards || ['+20xp', '+1 звезда', 'potion']
+          const pick = rewards[Math.floor(Math.random()*rewards.length)]
+          let msg = `Выпало: ${pick}!`
+          let newXp = profile.xp || 0
+          let newStars = profile.starBalance || 0
+          if (pick.includes('xp')) {
+            const amt = parseInt(pick) || 20; newXp += amt
+          } else if (pick.includes('звезда')) {
+            const amt = parseInt(pick) || 1; newStars += amt
+          } else if (pick === 'potion') {
+            msg += ' (Зелье: +10% к следующей игре)'
+            // could store buff
+          }
+          const newP = {...profile, xp: newXp, starBalance: newStars}
+          setProfile(newP as any)
+          await api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({xp: newXp, starBalance: newStars})}).catch(()=>{})
+          setStatus(msg)
+        }}>Открыть лутбокс</button>
+      </div>
 
       {goal && (
         <div className="pixel-panel goal-bar">
@@ -3461,24 +3581,24 @@ function ChildQuestHud({
   )
 }
 
-function PixelAvatar({ avatar, avatarUrl, small = false }: { avatar: string; avatarUrl?: string; small?: boolean }) {
-  if (avatarUrl) {
-    return (
-      <div className={small ? 'custom-avatar small' : 'custom-avatar'} aria-hidden="true">
-        <img alt="" src={avatarUrl} />
-      </div>
-    )
+function PixelAvatar({ avatar, avatarUrl, small = false, cosmetics = {} }: { avatar: string; avatarUrl?: string; small?: boolean; cosmetics?: Record<string, string> }) {
+  const baseSrc = avatarUrl || (spriteAvatarSet.has(avatar) ? `/avatars/${avatar}.svg` : null)
+
+  if (!baseSrc) {
+    return <LegacyPixelAvatar avatar={avatar} small={small} />
   }
 
-  if (spriteAvatarSet.has(avatar)) {
-    return (
-      <div className={small ? `sprite-avatar ${avatar} small` : `sprite-avatar ${avatar}`} aria-hidden="true">
-        <img alt="" src={`/avatars/${avatar}.svg`} />
-      </div>
-    )
-  }
+  const accs = Object.entries(cosmetics || {}).filter(([_,v]) => v)
 
-  return <LegacyPixelAvatar avatar={avatar} small={small} />
+  return (
+    <div className={small ? 'avatar-container small' : 'avatar-container'} aria-hidden="true">
+      <img alt="avatar" src={baseSrc} />
+      {accs.map(([slot, item]) => {
+        const src = `/avatars/accessories/${item}.svg`
+        return <img key={slot} className={`accessory ${slot}`} alt={slot} src={src} />
+      })}
+    </div>
+  )
 }
 
 /** CSS-only аватары (legacy). Оставлены как запасной вариант. */

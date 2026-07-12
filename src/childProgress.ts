@@ -41,6 +41,11 @@ export type ChildProfile = {
   currentGoal?: { label: string; starsTarget: number }
   moneyRate?: number // рублей за 1 звезду (для teen/allowance)
   skillLevels?: Record<string, number>
+  xp: number
+  equippedCosmetics?: Record<string, string>  // e.g. { hat: 'crown', cloak: 'blue', pet: 'slime' }
+  unlockedCosmetics?: string[]
+  regularTasks?: Array<{ id: string; label: string; xp: number; stars: number }>
+  lootboxRewards?: string[]  // e.g. ['+30xp', '+2stars', 'potion']
   createdAt: string
   updatedAt: string
 }
@@ -176,6 +181,32 @@ export const computeSkillLevels = (categoryCounts: Record<string, number>): Reco
   })
   return levels
 }
+
+// XP and Level system
+export const XP_THRESHOLDS = [0, 30, 80, 150, 240, 350, 480, 630, 800, 1000] // cumulative XP for levels 1 to 10+
+
+export const getLevelFromXp = (xp: number): number => {
+  let level = 1
+  for (let i = 1; i < XP_THRESHOLDS.length; i++) {
+    if (xp >= XP_THRESHOLDS[i]) level = i + 1
+    else break
+  }
+  return level
+}
+
+export const xpForNextLevel = (currentXp: number): number => {
+  const level = getLevelFromXp(currentXp)
+  const nextThreshold = XP_THRESHOLDS[level] || XP_THRESHOLDS[XP_THRESHOLDS.length-1] + 200
+  return Math.max(0, nextThreshold - currentXp)
+}
+
+export const xpGainFromGame = (coins: number, choresCompleted: number): number => {
+  // Tune so first game ~30-50 XP for level 2
+  return Math.floor(coins * 0.4 + choresCompleted * 3)
+}
+
+export const xpGainFromRegular = (xpReward: number): number => xpReward
+
 
 export const computeStreak = (ledger: ChildLedgerEntry[]): number => {
   if (!ledger.length) return 0

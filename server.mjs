@@ -153,6 +153,15 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   currentGoal: undefined,
   moneyRate: ageGroup === 'teen' ? 25 : 15, // руб за звезду
   skillLevels: {},
+  xp: 0,
+  equippedCosmetics: {},
+  unlockedCosmetics: [],
+  regularTasks: [
+    { id: 'dishes-daily', label: 'Помыть посуду', xp: 15, stars: 1 },
+    { id: 'room-tidy', label: 'Прибрать в своей комнате', xp: 20, stars: 1 },
+    { id: 'trash', label: 'Вынести мусор', xp: 10, stars: 1 },
+  ],
+  lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 })
@@ -192,6 +201,16 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
     : fallback.currentGoal || undefined,
   moneyRate: Number(profile.moneyRate ?? fallback.moneyRate ?? (profile.ageGroup === 'teen' ? 25 : 15)),
   skillLevels: profile.skillLevels && typeof profile.skillLevels === 'object' ? profile.skillLevels : fallback.skillLevels || {},
+  xp: Number(profile.xp ?? fallback.xp ?? 0),
+  equippedCosmetics: profile.equippedCosmetics && typeof profile.equippedCosmetics === 'object' ? profile.equippedCosmetics : fallback.equippedCosmetics || {},
+  unlockedCosmetics: Array.isArray(profile.unlockedCosmetics) ? profile.unlockedCosmetics : fallback.unlockedCosmetics || [],
+  regularTasks: Array.isArray(profile.regularTasks) ? profile.regularTasks.map(t => ({
+    id: String(t.id || makeId()),
+    label: String(t.label || 'Задание'),
+    xp: Number(t.xp || 10),
+    stars: Number(t.stars || 1),
+  })) : fallback.regularTasks || [],
+  lootboxRewards: Array.isArray(profile.lootboxRewards) ? profile.lootboxRewards.map(String) : fallback.lootboxRewards || ['+20xp', '+1 звезда', 'potion'],
   createdAt: profile.createdAt || fallback.createdAt || new Date().toISOString(),
   updatedAt: profile.updatedAt || fallback.updatedAt || new Date().toISOString(),
 })
@@ -243,6 +262,7 @@ const applyChildOutcome = (db, outcome, gameId) => {
     categoryCounts,
     achievementIds: unlockAchievements(categoryCounts, previous.achievementIds || []),
     skillLevels: newSkillLevels,
+    xp: Number(previous.xp || 0) + (outcome.coins ? Math.floor(outcome.coins * 0.4) : 20),
     ledger: [...(previous.ledger || []), ledgerEntry],
     updatedAt: new Date().toISOString(),
   })
