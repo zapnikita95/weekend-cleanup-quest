@@ -11,6 +11,8 @@ import {
   filterGamesByMode,
   getAgeLabel,
   getSkillTitle,
+  getCategorySkillBonus,
+  getActiveSkillBuffs,
   SKILL_TREE,
   starsForTier,
   type StarReward,
@@ -544,6 +546,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [gameMode, setGameMode] = useState<GameMode>(() => readLocalJson<GameMode>('wcq-game-mode', 'duo'))
   const [players, setPlayers] = useState<Player[]>(() => readPlayersForMode(readLocalJson<GameMode>('wcq-game-mode', 'duo')))
   const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
+  const [parentAccessPin, setParentAccessPin] = useState('')
+  const [parentUnlocked, setParentUnlocked] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(() => !readLocalJson<boolean>('wcq-onboarding-dismissed', false))
   const [startHints, setStartHints] = useState<string[]>([])
   const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
@@ -771,12 +775,28 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
   const playerScores = players.map((_, index) => scoreFor(index))
   const childCoins = useMemo(() => {
-    if (gameMode !== 'childQuest' || childPlayerIndex < 0) return 0
+    if (gameMode !== 'childQuest' || childPlayerIndex < 0 || !activeChildProfile) return 0
+    const skills = activeChildProfile.skillLevels || {}
     return assigned
-      .filter((chore) => chore.assignedTo === childPlayerIndex && isCompleted(chore))
-      .reduce((sum, chore) => sum + choreBasePoints(chore), 0)
-  }, [assigned, childPlayerIndex, gameMode])
+      .filter((chore) => chore.assignedTo === childPlayerIndex && isCompleted(chore) && (!requirePhotoProof || chore.approved))
+      .reduce((sum, chore) => {
+        const base = choreBasePoints(chore)
+        // Determine rough category from title
+        const titleLower = (chore.parentTitle || chore.title || '').toLowerCase()
+        let cat = 'storage'
+        if (titleLower.includes('кух') || titleLower.includes('посуд')) cat = 'kitchen'
+        else if (titleLower.includes('ванн') || titleLower.includes('туал') || titleLower.includes('раков')) cat = 'bath'
+        else if (titleLower.includes('спаль')) cat = 'bedroom'
+        else if (titleLower.includes('гостин') || titleLower.includes('комнат')) cat = 'living'
+        else if (titleLower.includes('прихож') || titleLower.includes('корид')) cat = 'hall'
+        else if (titleLower.includes('сад') || titleLower.includes('двор') || titleLower.includes('улиц')) cat = 'garden'
+
+        const bonus = getCategorySkillBonus ? getCategorySkillBonus(cat, skills).coinBonus : 0
+        return sum + base + bonus
+      }, 0)
+  }, [assigned, childPlayerIndex, gameMode, activeChildProfile, requirePhotoProof])
   const childTier = gameMode === 'childQuest' ? getTierFromScore(childCoins, targetScore) : 'none'
+  const activeBuffs = gameMode === 'childQuest' && activeChildProfile ? getActiveSkillBuffs(activeChildProfile.skillLevels || {}) : []
   const rankedPlayers = activePlayerIndexes.slice().sort((a, b) => playerScores[b].total - playerScores[a].total)
   const winner =
     gameMode === 'childQuest'
@@ -1487,6 +1507,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setStatus('Сначала укажите почту семьи.')
       return
     }
+    if (parentChildProfiles.length > 0 && !parentUnlocked) {
+      setStatus('Введите PIN родителя для редактирования наград.')
+      return
+    }
     try {
       const childEmail = normalizeEmail(gamePlayers[0]?.email || pairPlayerEmail(pairEmail, 0))
       const result = await api<{ profile: ChildProfile; state: ApiState }>('/api/child-profiles', {
@@ -1630,6 +1654,16 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   <p className="hint">
                     Один персонаж — ребёнок. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
                   </p>
+                  {parentChildProfiles.length > 0 && (
+                    <div style={{marginTop:8}}>
+                      <label>
+                        PIN родителя (защита от детей):
+                        <input type="password" value={parentAccessPin} onChange={e => setParentAccessPin(e.target.value)} placeholder="****" maxLength={6} />
+                      </label>
+                      <button className="tiny-button" onClick={() => setParentUnlocked(parentAccessPin.length >= 3)}>Разблокировать родительский режим</button>
+                      {!parentUnlocked && <small style={{color:'red'}}>Введите PIN чтобы редактировать награды и настройки</small>}
+                    </div>
+                  )}
                   <ChildProfileManager
                     childProfile={activeChildProfile}
                     childProfiles={parentChildProfiles}
@@ -1841,6 +1875,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   ? `${childCoins} / ${targetScore} монет`
                   : 'Space / Enter'}
               </strong>
+              {gameMode === 'childQuest' && activeBuffs.length > 0 && (
+                <small style={{fontSize: '10px', opacity: 0.7}}>Баффы: {activeBuffs.slice(0,2).join(', ')}</small>
+              )}
             </div>
             <button
               className="pixel-button"
@@ -1937,6 +1974,18 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                       </button>
                     ))}
                   </div>
+                  {gameMode === 'childQuest' && requirePhotoProof && plan.some(c => c.proofPhotoUrl && !c.approved) && (
+                    <div className="pixel-panel" style={{marginTop: 12, padding: 12}}>
+                      <strong>Фото на подтверждение (можно в любое время до завершения):</strong>
+                      {plan.filter(c => c.proofPhotoUrl && !c.approved).map(c => (
+                        <div key={c.id} style={{display:'flex', alignItems:'center', gap:8, margin: '6px 0'}}>
+                          <img src={c.proofPhotoUrl} alt="" style={{width:48, height:48, objectFit:'cover', border: '2px solid #000'}} />
+                          <span>{c.title}</span>
+                          <button className="tiny-button" onClick={() => approvePhotoFromMain(c.id)}>Подтвердить</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </article>
               )
             })}
@@ -2396,6 +2445,17 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
       setProfile(result.profile)
       setGames(result.games)
       setStatus('')
+
+      // Show current active game if any
+      try {
+        const state = await api<any>('/api/state')
+        const activeForMe = (state.activeGames || []).find((g: any) => 
+          g.players?.some((p: any) => p.email && result.profile.childEmail && p.email.includes(result.profile.childEmail.split('@')[0]))
+        )
+        if (activeForMe) {
+          setStatus(`Текущая игра активна! Открой: /player/${activeForMe.id}/0`)
+        }
+      } catch {}
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить кабинет.')
     }
@@ -2534,7 +2594,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                 <div className="skill-card" key={skill.id}>
                   <RoomIcon icon={skill.icon} label={skill.title} />
                   <div>
-                    <strong>{title}</strong>
+                    <strong>{title} {lvl >= 4 ? '🏅' : lvl >= 3 ? '🥈' : lvl >= 2 ? '⭐' : ''}</strong>
                     <small>Ур. {lvl} • {count} дел</small>
                     <div className="progress-track"><div className="progress-fill" style={{width: `${progress}%`}} /></div>
                   </div>
@@ -2546,10 +2606,16 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
         </article>
 
         <article className="pixel-panel">
-          <h2>История квестов <button className="tiny-button" style={{float:'right'}} onClick={() => {
-            const text = games.slice(0,10).map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')} — ${g.childOutcome?.starsEarned||0}★`).join('\n');
-            navigator.clipboard?.writeText(`Отчёт ${profile.name}: ${profile.starBalance}★ всего\n${text}`).then(()=>setStatus('Отчёт скопирован'));
-          }}>Копировать отчёт</button></h2>
+          <h2>История квестов 
+            <button className="tiny-button" style={{float:'right', marginLeft:4}} onClick={() => {
+              const text = games.slice(0,10).map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')} — ${g.childOutcome?.starsEarned||0}★`).join('\n');
+              navigator.clipboard?.writeText(`Отчёт ${profile.name}: ${profile.starBalance}★ всего\n${text}`).then(()=>setStatus('Отчёт скопирован'));
+            }}>Копировать</button>
+            <button className="tiny-button" style={{float:'right'}} onClick={() => {
+              const csv = ['Дата,Монеты,Звёзды,Приз'].concat(games.map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')},${g.childOutcome?.coins||0},${g.childOutcome?.starsEarned||0},"${g.childOutcome?.prizeLabel||''}"`)).join('\n');
+              const blob = new Blob([csv], {type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`report-${profile.name}.csv`; a.click(); URL.revokeObjectURL(url);
+            }}>CSV</button>
+          </h2>
           <div className="history-list">
             {games.map((game) => (
               <div className="history-row" key={game.id}>

@@ -40,6 +40,7 @@ export type ChildProfile = {
   ageGroup?: 'kid' | 'teen'
   currentGoal?: { label: string; starsTarget: number }
   moneyRate?: number // рублей за 1 звезду (для teen/allowance)
+  skillLevels?: Record<string, number>
   createdAt: string
   updatedAt: string
 }
@@ -92,6 +93,25 @@ export const getSkillTitle = (skillId: string, level: number): string => {
 export const getSkillBonusStars = (oldLevel: number, newLevel: number): number => {
   if (newLevel > oldLevel) return (newLevel - oldLevel) * 2 // +2 stars per level up
   return 0
+}
+
+// Active in-game bonuses for childQuest
+export const getCategorySkillBonus = (categoryIcon: string, skillLevels: Record<string, number>) => {
+  const lvl = skillLevels?.[categoryIcon] || 1
+  return {
+    coinBonus: Math.floor(lvl * 3),           // flat +coins per chore in category
+    starMultiplier: 1 + (lvl - 1) * 0.1,      // small % bonus to final stars
+    timeExtension: lvl >= 3 ? 5 : 0,          // minutes extra available if high skill
+  }
+}
+
+export const getActiveSkillBuffs = (skillLevels: Record<string, number>) => {
+  const buffs: string[] = []
+  Object.entries(skillLevels || {}).forEach(([cat, lvl]) => {
+    if (lvl >= 2) buffs.push(`+${Math.floor(lvl*3)} монет в ${cat}`)
+    if (lvl >= 4) buffs.push(`Бонусные звёзды в ${cat}`)
+  })
+  return buffs
 }
 
 export const ROOM_ICON_TO_KEY: Record<string, string> = {
