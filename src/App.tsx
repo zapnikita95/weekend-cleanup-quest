@@ -62,6 +62,7 @@ type AssignedChore = ChoreTask & {
   completed: boolean
   completedAt?: number
   actualMinutes?: number
+  proofPhotoUrl?: string
   partnerRating: number
   ratings?: Record<string, number>
   parentId?: string
@@ -374,6 +375,17 @@ const formatDate = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { day: '2-digit', hour: '2-digit', minute: '2-digit', month: 'short' }).format(
     new Date(value),
   )
+
+const numberInputValue = (value: number | undefined) => (Number.isFinite(value) && Number(value) !== 0 ? String(value) : '')
+const numberFromInput = (value: string) => (value === '' ? 0 : Number(value))
+
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 
 const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
@@ -848,12 +860,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setStatus('Сначала укажи общую почту пары, потом загружай аватарку.')
       return
     }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
-    })
+    const dataUrl = await fileToDataUrl(file)
     try {
       const result = await api<{ profile: Profile; state: ApiState }>('/api/avatar', {
         body: JSON.stringify({ ...players[index], email: gamePlayers[index].email, dataUrl }),
@@ -1496,8 +1503,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                     min={20}
                     step={10}
                     type="number"
-                    value={targetScore}
-                    onChange={(event) => setTargetScore(Number(event.target.value))}
+                    value={numberInputValue(targetScore)}
+                    onChange={(event) => setTargetScore(numberFromInput(event.target.value))}
                   />
                   <small className="formula-hint">
                     Рекомендация: {recommendedScore}. Формула: сумма очков выбранных дел минус 1 сложное или 2–3 простых
@@ -1523,7 +1530,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   />
                   <label className="child-proof-toggle">
                     <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
-                    Нужны фотографии для подтверждения (скоро)
+                    <span>Нужны фотографии для подтверждения дел</span>
                   </label>
                 </div>
               )}
@@ -1586,8 +1593,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                 min={15}
                 step={5}
                 type="number"
-                value={roundMinutes}
-                onChange={(event) => setRoundMinutes(Number(event.target.value))}
+                value={numberInputValue(roundMinutes)}
+                onChange={(event) => setRoundMinutes(numberFromInput(event.target.value))}
               />
             </label>
             <p className="hint">Время нужно только для ориентира и распределения. Игра завершается только когда вы сами переходите к оценкам.</p>
@@ -1615,34 +1622,28 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             sections={sections}
           />
 
-          <button
-            className={`stats-nav-card pixel-panel ${showOnboarding ? 'tour-dashboard' : ''}`}
-            type="button"
-            onClick={goToStats}
-          >
-            <div className="panel-title stats-nav-title">
-              <span>4</span>
-              <div>
-                <h2>
-                  {gameMode === 'childQuest'
-                    ? 'Прогресс и история ребёнка'
-                    : gameMode === 'solo'
-                      ? 'Моя история и статистика'
-                      : 'История пары и статистика'}
-                </h2>
-                <p className="hint">
-                  {gameMode === 'childQuest'
-                    ? 'Звёзды, квесты и достижения без глобального лидерборда'
-                    : gameMode === 'solo'
+          {gameMode !== 'childQuest' && (
+            <button
+              className={`stats-nav-card pixel-panel ${showOnboarding ? 'tour-dashboard' : ''}`}
+              type="button"
+              onClick={goToStats}
+            >
+              <div className="panel-title stats-nav-title">
+                <span>4</span>
+                <div>
+                  <h2>{gameMode === 'solo' ? 'Моя история и статистика' : 'История пары и статистика'}</h2>
+                  <p className="hint">
+                    {gameMode === 'solo'
                       ? 'Когда играл, что делал и что давно не повторял'
                       : 'Кто что делает чаще и история ваших игр'}
-                </p>
+                  </p>
+                </div>
               </div>
-            </div>
-            <span aria-hidden className="stats-nav-arrow">
-              →
-            </span>
-          </button>
+              <span aria-hidden className="stats-nav-arrow">
+                →
+              </span>
+            </button>
+          )}
 
           <article className={`pixel-panel start-card ${showOnboarding ? 'tour-start' : ''}`}>
             <h2>Готовы к уборке?</h2>
@@ -1809,7 +1810,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                         <strong>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</strong>
                         <small>
                           {chore.minutes} мин · {difficultyLabel[chore.difficulty]}
+                          {gameMode === 'childQuest' && requirePhotoProof && !chore.proofPhotoUrl ? ' · ждёт фото' : ''}
                         </small>
+                        {chore.proofPhotoUrl && (
+                          <img alt="Фото подтверждения" className="proof-thumb board-proof-thumb" src={chore.proofPhotoUrl} />
+                        )}
                       </button>
                     ))}
                   </div>
@@ -2088,6 +2093,15 @@ function ChildProfileManager({
     setRewards(childProfile?.rewards || [])
   }, [childProfile])
 
+  const saveProfileSettings = () => {
+    const filledRewards = rewards.filter((reward) => reward.label.trim() || reward.starsRequired > 0)
+    if (filledRewards.some((reward) => !reward.label.trim() || reward.starsRequired <= 0)) {
+      window.alert('В каждой награде нужно указать и количество звёзд, и текст награды.')
+      return
+    }
+    onSave({ create: !selectedProfileId, starRules, rewards: filledRewards })
+  }
+
   return (
     <div className="child-profile-manager">
       <div className="child-profile-toolbar">
@@ -2105,54 +2119,62 @@ function ChildProfileManager({
             ))}
           </select>
         </label>
-        <button className="tiny-button" type="button" onClick={() => onSave({ create: !selectedProfileId, starRules, rewards })}>
+        <button className="tiny-button" type="button" onClick={saveProfileSettings}>
           Сохранить профиль
         </button>
         <button className="tiny-button alt" disabled={!selectedProfileId} type="button" onClick={onCopyLink}>
           Ссылка ребёнку
         </button>
       </div>
-      <div className="star-rules-grid">
-        <label>
-          За золото
+      <section className="child-profile-section">
+        <h3>Сколько звёзд получает ребёнок</h3>
+        <p className="hint">Эти правила применятся при сохранении квеста: золото, серебро или бронза.</p>
+        <div className="star-rules-grid">
+        <label className="star-rule-card gold">
+          <span>За золото</span>
           <input
             min={0}
             type="number"
-            value={starRules.gold}
-            onChange={(event) => setStarRules((current) => ({ ...current, gold: Number(event.target.value) }))}
+            value={numberInputValue(starRules.gold)}
+            onChange={(event) => setStarRules((current) => ({ ...current, gold: numberFromInput(event.target.value) }))}
           />
+          <small>звёзд</small>
         </label>
-        <label>
-          За серебро
+        <label className="star-rule-card silver">
+          <span>За серебро</span>
           <input
             min={0}
             type="number"
-            value={starRules.silver}
-            onChange={(event) => setStarRules((current) => ({ ...current, silver: Number(event.target.value) }))}
+            value={numberInputValue(starRules.silver)}
+            onChange={(event) => setStarRules((current) => ({ ...current, silver: numberFromInput(event.target.value) }))}
           />
+          <small>звёзд</small>
         </label>
-        <label>
-          За бронзу
+        <label className="star-rule-card bronze">
+          <span>За бронзу</span>
           <input
             min={0}
             type="number"
-            value={starRules.bronze}
-            onChange={(event) => setStarRules((current) => ({ ...current, bronze: Number(event.target.value) }))}
+            value={numberInputValue(starRules.bronze)}
+            onChange={(event) => setStarRules((current) => ({ ...current, bronze: numberFromInput(event.target.value) }))}
           />
+          <small>звёзд</small>
         </label>
-      </div>
-      <div className="child-rewards-editor">
-        <strong>Награды за звёзды</strong>
+        </div>
+      </section>
+      <section className="child-profile-section child-rewards-editor">
+        <h3>Награды за звёзды</h3>
+        <p className="hint">Если добавлена награда, обязательно заполни и цену в звёздах, и что ребёнок получит.</p>
         {rewards.map((reward, index) => (
           <div className="child-reward-row" key={reward.id}>
             <input
               min={1}
               type="number"
-              value={reward.starsRequired}
+              value={numberInputValue(reward.starsRequired)}
               onChange={(event) =>
                 setRewards((current) =>
                   current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, starsRequired: Number(event.target.value) } : item,
+                    itemIndex === index ? { ...item, starsRequired: numberFromInput(event.target.value) } : item,
                   ),
                 )
               }
@@ -2175,7 +2197,7 @@ function ChildProfileManager({
         >
           + награда
         </button>
-      </div>
+      </section>
       {childProfile && (
         <p className="hint">
           Баланс: {childProfile.starBalance} <StarSprite small /> · Кабинет: /child/{childProfile.id}
@@ -2473,8 +2495,8 @@ function ChoreLibrary({
             min={5}
             step={5}
             type="number"
-            value={newChore.minutes}
-            onChange={(event) => onNewChore({ ...newChore, minutes: Number(event.target.value) })}
+            value={numberInputValue(newChore.minutes)}
+            onChange={(event) => onNewChore({ ...newChore, minutes: numberFromInput(event.target.value) })}
           />
           <select
             className="compose-diff"
@@ -2537,8 +2559,8 @@ function ChoreLibrary({
                     min={5}
                     step={5}
                     type="number"
-                    value={child.minutes}
-                    onChange={(event) => onUpdateItem(item.id, { minutes: Number(event.target.value) }, child.id)}
+                    value={numberInputValue(child.minutes)}
+                    onChange={(event) => onUpdateItem(item.id, { minutes: numberFromInput(event.target.value) }, child.id)}
                   />
                   <select value={child.difficulty} onChange={(event) => onUpdateItem(item.id, { difficulty: event.target.value as Difficulty }, child.id)}>
                     <option value="easy">легко</option>
@@ -2561,8 +2583,8 @@ function ChoreLibrary({
                 min={5}
                 step={5}
                 type="number"
-                value={item.minutes}
-                onChange={(event) => onUpdateItem(item.id, { minutes: Number(event.target.value) })}
+                value={numberInputValue(item.minutes)}
+                onChange={(event) => onUpdateItem(item.id, { minutes: numberFromInput(event.target.value) })}
               />
               <select value={item.difficulty} onChange={(event) => onUpdateItem(item.id, { difficulty: event.target.value as Difficulty })}>
                 <option value="easy">легко</option>
@@ -2618,8 +2640,8 @@ function ExtraChoreForm({
           min={1}
           step={1}
           type="number"
-          value={extraChore.minutes}
-          onChange={(event) => onChange({ ...extraChore, minutes: Number(event.target.value) })}
+          value={numberInputValue(extraChore.minutes)}
+          onChange={(event) => onChange({ ...extraChore, minutes: numberFromInput(event.target.value) })}
         />
         {mode === 'solo' && (
           <select
@@ -3183,16 +3205,27 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
     return () => window.clearInterval(timer)
   }, [loadGame])
 
-  const complete = async (choreId?: string) => {
+  const complete = async (choreId?: string, proofPhotoUrl?: string) => {
     try {
       const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/complete`, {
-        body: JSON.stringify({ choreId, playerIndex }),
+        body: JSON.stringify({ choreId, playerIndex, proofPhotoUrl }),
         method: 'POST',
       })
       setGame(result.game)
       setStatus('Готово, общий экран обновился')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось отметить дело')
+    }
+  }
+
+  const uploadProofPhoto = async (choreId: string, file: File | null) => {
+    if (!file) return
+    try {
+      const dataUrl = await fileToDataUrl(file)
+      await complete(choreId, dataUrl)
+      setStatus('Фото прикреплено, дело закрыто')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось загрузить фото')
     }
   }
 
@@ -3403,18 +3436,28 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
 
         <div className="quest-list mobile-quests">
           {chores.map((chore) => (
-            <button
-              className={chore.completed ? 'quest done' : 'quest'}
-              key={`${chore.id}-${chore.assignedTo}`}
-              type="button"
-              onClick={() => complete(chore.id)}
-            >
-              <span>{chore.completed ? '✓' : '□'}</span>
-              <strong>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</strong>
-              <small>
-                {chore.minutes} мин · {difficultyLabel[chore.difficulty]}
-              </small>
-            </button>
+            <div className={chore.completed ? 'quest done mobile-quest-card' : 'quest mobile-quest-card'} key={`${chore.id}-${chore.assignedTo}`}>
+              <button className="mobile-quest-main" type="button" onClick={() => complete(chore.id)}>
+                <span>{chore.completed ? '✓' : '□'}</span>
+                <strong>{chore.parentTitle ? `${chore.parentTitle}: ${chore.title}` : chore.title}</strong>
+                <small>
+                  {chore.minutes} мин · {difficultyLabel[chore.difficulty]}
+                </small>
+              </button>
+              {game.requirePhotoProof && !chore.completed && (
+                <label className="proof-upload-button">
+                  <span>Прикрепить фото и закрыть</span>
+                  <input
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    type="file"
+                    onChange={(event) => uploadProofPhoto(chore.id, event.target.files?.[0] || null)}
+                  />
+                </label>
+              )}
+              {chore.proofPhotoUrl && (
+                <img alt="Фото подтверждения" className="proof-thumb" src={chore.proofPhotoUrl} />
+              )}
+            </div>
           ))}
         </div>
 

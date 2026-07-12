@@ -255,7 +255,7 @@ label {
 }
 
 .room-icon-select {
-  min-width: 150px;
+  min-width: 0;
 }
 
 .panel-title span {
@@ -305,7 +305,7 @@ label {
 
 .avatar-list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(42px, 1fr));
+  grid-template-columns: repeat(6, minmax(42px, 1fr));
   gap: 8px;
 }
 
@@ -313,7 +313,7 @@ label {
   border: 3px solid var(--ink);
   background: #fff;
   cursor: pointer;
-  padding: 7px 4px;
+  padding: 4px;
 }
 
 .avatar-choice.active {
@@ -532,7 +532,7 @@ label {
 }
 
 .group-row {
-  grid-template-columns: auto auto auto 130px minmax(0, 1fr) 72px auto auto;
+  grid-template-columns: auto auto auto minmax(110px, 150px) minmax(220px, 1fr) 72px auto auto;
   background: rgba(255, 217, 90, 0.55);
   border: 3px solid var(--ink);
 }
@@ -554,6 +554,15 @@ label {
 .group-minutes {
   font-weight: 900;
   white-space: nowrap;
+}
+
+.group-row input,
+.group-row select,
+.child-row input,
+.child-row select,
+.standalone-row input,
+.standalone-row select {
+  min-width: 0;
 }
 
 .star-sprite {
@@ -581,10 +590,22 @@ label {
 .child-profile-manager {
   display: grid;
   gap: 12px;
-  margin-top: 12px;
+  width: min(100%, 560px);
+  margin: 16px auto 0;
   padding: 12px;
   border: 3px dashed rgba(31, 24, 61, 0.35);
   background: rgba(255, 250, 240, 0.9);
+}
+
+.profiles-panel:has(.child-profile-manager) .players-editor {
+  max-width: 940px;
+  margin: 22px auto 0;
+}
+
+.profiles-panel:has(.child-profile-manager) .player-editor > .sprite-avatar,
+.profiles-panel:has(.child-profile-manager) .player-editor > .pixel-avatar,
+.profiles-panel:has(.child-profile-manager) .player-editor > .custom-avatar {
+  justify-self: center;
 }
 
 .child-profile-toolbar,
@@ -603,6 +624,36 @@ label {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.child-profile-section {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.child-profile-section h3 {
+  margin: 0;
+}
+
+.star-rule-card {
+  border: 3px solid var(--ink);
+  background: #fffaf0;
+  padding: 10px;
+}
+
+.star-rule-card.gold {
+  background: rgba(255, 217, 90, 0.3);
+}
+
+.star-rule-card.silver {
+  background: rgba(215, 231, 242, 0.55);
+}
+
+.star-rule-card.bronze {
+  background: rgba(255, 184, 107, 0.3);
+}
+
 .child-reward-row {
   grid-template-columns: 88px minmax(0, 1fr);
 }
@@ -610,6 +661,25 @@ label {
 .child-rewards-editor {
   display: grid;
   gap: 8px;
+}
+
+.child-proof-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: min(100%, 560px);
+  margin: 12px auto 0;
+  padding: 10px;
+  border: 3px solid var(--ink);
+  background: rgba(102, 227, 255, 0.12);
+}
+
+.child-proof-toggle input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .child-cabinet-shell {
@@ -666,6 +736,55 @@ label {
 .stats-analytics-layout {
   display: grid;
   gap: 24px;
+}
+
+.mobile-quest-card {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.mobile-quest-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.proof-upload-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--ink);
+  background: var(--aqua);
+  cursor: pointer;
+  font-weight: 900;
+  padding: 8px 10px;
+  text-transform: uppercase;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.proof-upload-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.proof-thumb {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border: 3px solid var(--ink);
+  image-rendering: auto;
 }
 
 @media (min-width: 861px) {

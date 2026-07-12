@@ -374,7 +374,7 @@ const completeActiveChore = async (gameId, request, response) => {
   if (choreId && target.completed) {
     game.chores = game.chores.map((chore) =>
       chore.id === target.id && chore.assignedTo === playerIndex
-        ? { ...chore, completed: false, completedAt: undefined, actualMinutes: undefined }
+        ? { ...chore, completed: false, completedAt: undefined, actualMinutes: undefined, proofPhotoUrl: undefined }
         : chore,
     )
     game.updatedAt = new Date().toISOString()
@@ -390,10 +390,26 @@ const completeActiveChore = async (gameId, request, response) => {
   const lastDoneAt = completed[0]?.completedAt || game.startedAt || new Date().toISOString()
   const completedAt = new Date().toISOString()
   const actualMinutes = Math.max(1, Math.round((new Date(completedAt).getTime() - new Date(lastDoneAt).getTime()) / 60000))
+  const proofPhotoUrl = body.proofPhotoUrl ? String(body.proofPhotoUrl) : target.proofPhotoUrl || ''
+
+  if (game.requirePhotoProof && !proofPhotoUrl) {
+    sendError(response, 400, 'Для этого дела нужна фотография.')
+    return
+  }
+
+  if (proofPhotoUrl && !proofPhotoUrl.startsWith('data:image/')) {
+    sendError(response, 400, 'Можно прикрепить только фото.')
+    return
+  }
+
+  if (proofPhotoUrl.length > 900_000) {
+    sendError(response, 413, 'Фото слишком большое. Сожмите или выберите другое.')
+    return
+  }
 
   game.chores = game.chores.map((chore) =>
     chore.id === target.id && chore.assignedTo === playerIndex
-      ? { ...chore, completed: true, completedAt: Date.now(), actualMinutes }
+      ? { ...chore, completed: true, completedAt: Date.now(), actualMinutes, proofPhotoUrl }
       : chore,
   )
   game.updatedAt = completedAt
