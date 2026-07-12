@@ -1050,8 +1050,8 @@ label {
   z-index: 3;
 }
 .avatar-container .accessory.pet {
-  top: 0;
-  left: 0;
+  top: 7px;
+  left: 18px;
   z-index: 6;
 }
 .avatar-container .accessory.potion {
