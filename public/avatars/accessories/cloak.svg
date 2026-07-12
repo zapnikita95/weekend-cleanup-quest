@@ -1,4 +1,9 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M18 22 Q18 48 32 52 Q46 48 46 22" fill="#4169E1" stroke="#000" stroke-width="2"/>
-  <path d="M22 26 Q32 32 42 26" fill="none" stroke="#000" stroke-width="1"/>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <rect x="18" y="22" width="28" height="28" fill="#1f183d"/>
+  <rect x="21" y="18" width="22" height="33" fill="#5354ff"/>
+  <rect x="18" y="25" width="8" height="26" fill="#3b36bf"/>
+  <rect x="38" y="25" width="8" height="26" fill="#3b36bf"/>
+  <rect x="24" y="18" width="16" height="5" fill="#ff79b8"/>
+  <rect x="28" y="23" width="8" height="28" fill="#6f6cff" opacity="0.75"/>
+  <rect x="21" y="51" width="22" height="4" fill="#1f183d"/>
 </svg>

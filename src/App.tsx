@@ -495,6 +495,10 @@ function App() {
   if (childRoute) {
     return <ChildCabinetPage profileId={decodeURIComponent(childRoute[1])} />
   }
+  const childDefaultPlayerRoute = window.location.pathname.match(/^\/player\/([^/]+)\/?$/)
+  if (childDefaultPlayerRoute) {
+    return <MobilePlayerPage playerIndex={0} sessionId={decodeURIComponent(childDefaultPlayerRoute[1])} />
+  }
   const mobileRoute = window.location.pathname.match(/^\/player\/([^/]+)\/(\d+)\/?$/)
   if (mobileRoute) {
     return <MobilePlayerPage playerIndex={Number(mobileRoute[2])} sessionId={decodeURIComponent(mobileRoute[1])} />
@@ -1071,6 +1075,17 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     window.history.replaceState(null, '', '/')
   }
 
+  const clearActiveGame = async (gameId: string) => {
+    try {
+      const result = await api<{ state: ApiState }>(`/api/active-games/${gameId}`, { method: 'DELETE' })
+      setRemoteState(normalizeApiState(result.state))
+      if (activeGameId === gameId) setActiveGameId('')
+      setStatus('Активная игра закрыта. Можно запускать новую.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось закрыть активную игру.')
+    }
+  }
+
   const dismissOnboarding = () => {
     writeLocalJson('wcq-onboarding-dismissed', true)
     setShowOnboarding(false)
@@ -1573,9 +1588,14 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             </span>
           </label>
           {currentActiveGame && phase === 'setup' && (
-            <button className="pixel-button resume-button" type="button" onClick={() => openActiveGame(currentActiveGame.id)}>
-              Продолжить активную игру
-            </button>
+            <div className="active-game-actions">
+              <button className="pixel-button resume-button" type="button" onClick={() => openActiveGame(currentActiveGame.id)}>
+                Продолжить активную игру
+              </button>
+              <button className="tiny-button danger" type="button" onClick={() => clearActiveGame(currentActiveGame.id)}>
+                Завершить активную игру
+              </button>
+            </div>
           )}
         </div>
         <button className="pixel-button alt" type="button" onClick={toggleMusic}>
@@ -2243,7 +2263,13 @@ const computeRecentChoreTitles = (games: GameRecord[]) => {
 }
 
 function RoomIcon({ icon, label = '' }: { icon: string; label?: string }) {
-  return <span aria-label={label} className={`room-icon ${icon}`} role="img" title={label} />
+  const symbolId = icon === 'outside' ? 'garden' : icon === 'wardrobe' ? 'bedroom' : icon === 'garage' ? 'storage' : icon === 'dining' ? 'kitchen' : icon === 'toilet' ? 'bath' : icon
+  return (
+    <svg aria-label={label} className={`room-icon ${symbolId}`} role="img">
+      {label && <title>{label}</title>}
+      <use href={`/sprites/skill-icons.svg#${symbolId}`} />
+    </svg>
+  )
 }
 
 function StarSprite({ small = false }: { small?: boolean }) {
@@ -2702,6 +2728,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const [profile, setProfile] = useState<ChildProfile | null>(null)
   const [games, setGames] = useState<GameRecord[]>([])
   const [status, setStatus] = useState('Загружаю кабинет...')
+  const [activeGameId, setActiveGameId] = useState('')
 
   const loadProfile = useCallback(async () => {
     try {
@@ -2713,6 +2740,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
       setProfile(prof)
       setGames(result.games)
       setStatus('')
+      setActiveGameId('')
 
       // Show current active game if any
       try {
@@ -2721,9 +2749,11 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           g.players?.some((p: any) => p.email && result.profile.childEmail && p.email.includes(result.profile.childEmail.split('@')[0]))
         )
         if (activeForMe) {
-          setStatus(`Текущая игра активна! Открой: /player/${activeForMe.id}/0`)
+          setActiveGameId(activeForMe.id)
         }
-      } catch {}
+      } catch {
+        setStatus('Кабинет загружен. Активную игру не удалось проверить, обновите страницу позже.')
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить кабинет.')
     }
@@ -2761,6 +2791,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const ageLabel = getAgeLabel(profile.ageGroup)
   const goal = profile.currentGoal
   const goalProgress = goal ? Math.min(100, Math.floor(((profile.starBalance || 0) / goal.starsTarget) * 100)) : 0
+  const activeGameLink = activeGameId ? `/player/${activeGameId}/0` : ''
 
   return (
     <main className="game-shell child-cabinet-shell">
@@ -2780,6 +2811,19 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           </div>
         </div>
       </header>
+
+      {activeGameLink && (
+        <article className="pixel-panel child-active-game-card">
+          <div>
+            <p className="eyebrow">Активный квест</p>
+            <h2>Можно продолжить уборку</h2>
+            <p className="hint">Нажми кнопку, откроется твой список дел. Никакие настройки там не нужны.</p>
+          </div>
+          <button className="pixel-button start" type="button" onClick={() => window.location.assign(activeGameLink)}>
+            Перейти к игре
+          </button>
+        </article>
+      )}
 
       {/* XP and Avatar Progression */}
       <div className="pixel-panel" style={{marginBottom: 12}}>
@@ -2944,7 +2988,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
         </article>
 
         <article className="pixel-panel">
-          <h2>🌳 Дерево навыков (РПГ)</h2>
+          <h2>Дерево навыков</h2>
           <div className="skill-tree">
             {SKILL_TREE.map((skill) => {
               const count = profile.categoryCounts[skill.id] || 0

@@ -398,6 +398,17 @@ const createActiveGame = async (request, response) => {
   sendJson(response, 200, { game: hydrateActiveGame(activeGame, db.profiles) })
 }
 
+const deleteActiveGame = (gameId, response) => {
+  const db = readDb()
+  if (!db.activeGames[gameId]) {
+    sendError(response, 404, 'Активная игра не найдена.')
+    return
+  }
+  delete db.activeGames[gameId]
+  writeDb(db)
+  sendJson(response, 200, { state: buildState() })
+}
+
 const completeActiveChore = async (gameId, request, response) => {
   const body = await readJsonBody(request)
   const db = readDb()
@@ -989,6 +1000,10 @@ const server = createServer(async (request, response) => {
         return
       }
       sendJson(response, 200, { game: hydrateActiveGame(game, db.profiles) })
+      return
+    }
+    if (activeRoute && request.method === 'DELETE' && !activeRoute.action) {
+      deleteActiveGame(activeRoute.id, response)
       return
     }
     if (activeRoute && request.method === 'POST' && activeRoute.action === 'complete') {

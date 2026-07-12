@@ -1013,6 +1013,7 @@ label {
   width: 64px;
   height: 64px;
   display: inline-block;
+  overflow: visible;
 }
 .avatar-container.small {
   width: 32px;
@@ -1026,14 +1027,41 @@ label {
   height: 100%;
   image-rendering: pixelated;
 }
+.avatar-container > img:first-child {
+  z-index: 2;
+}
 .avatar-container .accessory {
   pointer-events: none;
+  z-index: 4;
 }
-.avatar-container .accessory.hat { top: -8px; }
-.avatar-container .accessory.cloak { z-index: -1; top: 4px; }
-.avatar-container .accessory.staff { left: 12px; top: 8px; }
-.avatar-container .accessory.pet { left: 40px; top: 40px; width: 20px; height: 20px; }
-.avatar-container.small .accessory { transform: scale(0.5); }
+.avatar-container .accessory.hat {
+  top: -14px;
+  left: 0;
+  z-index: 5;
+}
+.avatar-container .accessory.cloak {
+  top: 3px;
+  left: 0;
+  z-index: 1;
+}
+.avatar-container .accessory.staff {
+  top: 0;
+  left: 0;
+  z-index: 3;
+}
+.avatar-container .accessory.pet {
+  top: 0;
+  left: 0;
+  z-index: 6;
+}
+.avatar-container .accessory.potion {
+  top: 0;
+  left: 0;
+  z-index: 6;
+}
+.avatar-container.small .accessory.hat {
+  top: -7px;
+}
 
 .stats-child-hero {
   display: flex;
@@ -1181,55 +1209,9 @@ label {
   width: 32px;
   height: 32px;
   border: 3px solid var(--ink);
-  background:
-    linear-gradient(90deg, transparent 0 48%, rgba(31, 24, 61, 0.38) 48% 55%, transparent 55%),
-    var(--aqua);
+  background: #fffaf0;
   box-shadow: 3px 3px 0 var(--ink);
-}
-
-.room-icon.bath {
-  background: linear-gradient(180deg, #fff 0 35%, #66e3ff 35% 75%, #2d72ff 75%);
-}
-
-.room-icon.kitchen {
-  background: linear-gradient(90deg, #ff8a3d 0 38%, #fff 38% 58%, #1f183d 58% 68%, #ffd95a 68%);
-}
-
-.room-icon.living {
-  background: linear-gradient(180deg, #b56cff 0 45%, #ff79b8 45% 72%, #1f183d 72%);
-}
-
-.room-icon.bedroom {
-  background: linear-gradient(180deg, #5354ff 0 45%, #fff4bd 45% 70%, #ff79b8 70%);
-}
-
-.room-icon.toilet {
-  background: linear-gradient(180deg, #f5f0ff 0 55%, #8fd0ff 55%);
-}
-
-.room-icon.hall {
-  background: linear-gradient(90deg, #ffd95a 0 25%, #fffaf0 25% 75%, #1f183d 75%);
-}
-
-.room-icon.wardrobe {
-  background: linear-gradient(90deg, #8b5a2b 0 45%, #ffd95a 45% 55%, #8b5a2b 55%);
-}
-
-.room-icon.storage {
-  background: linear-gradient(180deg, #b56cff 0 25%, #8b5a2b 25% 75%, #ffd95a 75%);
-}
-
-.room-icon.garden,
-.room-icon.outside {
-  background: linear-gradient(180deg, #66e3ff 0 45%, #54d66f 45% 75%, #1f8f45 75%);
-}
-
-.room-icon.dining {
-  background: linear-gradient(180deg, #fff4bd 0 40%, #8b5a2b 40% 55%, #ff8a3d 55%);
-}
-
-.room-icon.garage {
-  background: linear-gradient(180deg, #8fd0ff 0 35%, #33334f 35% 80%, #ffd95a 80%);
+  image-rendering: pixelated;
 }
 
 .mini-input {
