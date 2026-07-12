@@ -124,7 +124,7 @@ const unlockAchievements = (categoryCounts, currentIds = []) => {
   return [...next]
 }
 
-const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatarUrl = '' }) => ({
+const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatarUrl = '', ageGroup = 'kid' }) => ({
   id,
   parentEmail: normalizeEmail(parentEmail),
   childEmail: normalizeEmail(childEmail),
@@ -133,15 +133,25 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   avatarUrl: String(avatarUrl || ''),
   starBalance: 0,
   starRules: defaultStarRules(),
-  rewards: [
-    { id: makeId(), starsRequired: 3, label: 'Маленький подарок' },
-    { id: makeId(), starsRequired: 5, label: 'Выбор мультика' },
-    { id: makeId(), starsRequired: 10, label: 'Большой приз' },
-  ],
+  rewards: ageGroup === 'teen'
+    ? [
+        { id: makeId(), starsRequired: 5, label: 'Час без вопросов по телефону', category: 'privilege' },
+        { id: makeId(), starsRequired: 8, label: 'Выбор фильма или сериала на вечер', category: 'experience' },
+        { id: makeId(), starsRequired: 12, label: 'Эквивалент 300₽ на карманные расходы', category: 'allowance' },
+        { id: makeId(), starsRequired: 20, label: 'Выходной без домашних дел + 500₽', category: 'experience' },
+      ]
+    : [
+        { id: makeId(), starsRequired: 3, label: 'Маленький подарок', category: 'item' },
+        { id: makeId(), starsRequired: 5, label: 'Выбор мультика / игры', category: 'experience' },
+        { id: makeId(), starsRequired: 10, label: 'Большой приз (игрушка / поход)', category: 'item' },
+      ],
   ledger: [],
   achievementIds: [],
   categoryCounts: {},
   totalQuests: 0,
+  ageGroup: ageGroup === 'teen' ? 'teen' : 'kid',
+  currentGoal: undefined,
+  moneyRate: ageGroup === 'teen' ? 25 : 15, // руб за звезду
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 })
@@ -165,6 +175,7 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
         starsRequired: Number(reward.starsRequired || 0),
         label: String(reward.label || '').trim(),
         redeemedAt: reward.redeemedAt ? String(reward.redeemedAt) : undefined,
+        category: reward.category || undefined,
       }))
     : fallback.rewards || [],
   ledger: Array.isArray(profile.ledger) ? profile.ledger.slice(-100) : fallback.ledger || [],
@@ -174,6 +185,11 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
       ? profile.categoryCounts
       : fallback.categoryCounts || {},
   totalQuests: Number(profile.totalQuests ?? fallback.totalQuests ?? 0),
+  ageGroup: profile.ageGroup === 'teen' ? 'teen' : 'kid',
+  currentGoal: profile.currentGoal && profile.currentGoal.label && profile.currentGoal.starsTarget
+    ? { label: String(profile.currentGoal.label), starsTarget: Number(profile.currentGoal.starsTarget) }
+    : fallback.currentGoal || undefined,
+  moneyRate: Number(profile.moneyRate ?? fallback.moneyRate ?? (profile.ageGroup === 'teen' ? 25 : 15)),
   createdAt: profile.createdAt || fallback.createdAt || new Date().toISOString(),
   updatedAt: profile.updatedAt || fallback.updatedAt || new Date().toISOString(),
 })
@@ -754,6 +770,7 @@ const upsertChildProfile = async (request, response) => {
     name: body.name,
     avatar: body.avatar,
     avatarUrl: body.avatarUrl,
+    ageGroup: body.ageGroup,
   })
 
   if (previous.parentEmail && previous.parentEmail !== parentEmail) {

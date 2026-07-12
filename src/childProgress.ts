@@ -37,6 +37,9 @@ export type ChildProfile = {
   achievementIds: string[]
   categoryCounts: Record<string, number>
   totalQuests: number
+  ageGroup?: 'kid' | 'teen'
+  currentGoal?: { label: string; starsTarget: number }
+  moneyRate?: number // рублей за 1 звезду (для teen/allowance)
   createdAt: string
   updatedAt: string
 }
@@ -112,3 +115,28 @@ export const unlockAchievements = (categoryCounts: Record<string, number>, curre
 
 export const filterGamesByMode = <T extends { mode?: GameMode }>(games: T[], mode: GameMode) =>
   games.filter((game) => (game.mode || 'duo') === mode)
+
+export const computeLevel = (totalQuests: number, starBalance: number): number => {
+  // Simple satisfying progression: quests primary + stars bonus
+  return 1 + Math.floor(totalQuests / 3) + Math.floor(starBalance / 12)
+}
+
+export const computeStreak = (ledger: ChildLedgerEntry[]): number => {
+  if (!ledger.length) return 0
+  const sorted = [...ledger].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  let streak = 1
+  let prev = new Date(sorted[0].createdAt)
+  for (let i = 1; i < sorted.length; i++) {
+    const d = new Date(sorted[i].createdAt)
+    const diffDays = Math.floor((prev.getTime() - d.getTime()) / (1000 * 3600 * 24))
+    if (diffDays === 1) {
+      streak++
+      prev = d
+    } else if (diffDays > 1) {
+      break
+    }
+  }
+  return streak
+}
+
+export const getAgeLabel = (ageGroup?: 'kid' | 'teen') => (ageGroup === 'teen' ? 'Подросток' : 'Ребёнок')

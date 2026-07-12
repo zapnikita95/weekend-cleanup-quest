@@ -462,6 +462,20 @@ label {
   margin-bottom: 14px;
 }
 
+.templates-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.templates-label {
+  color: var(--muted);
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .chores-section-tabs {
   margin-left: 0;
   width: 100%;

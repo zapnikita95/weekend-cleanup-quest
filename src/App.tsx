@@ -4,8 +4,11 @@ import {
   CATEGORY_ACHIEVEMENTS,
   type ChildProfile,
   type ChildQuestOutcome,
+  computeLevel,
+  computeStreak,
   defaultStarRules,
   filterGamesByMode,
+  getAgeLabel,
   starsForTier,
   type StarReward,
   type StarRules,
@@ -309,6 +312,57 @@ const defaultChores: ChoreItem[] = [
   task('trash', 'Мусор и пакеты', 10, 'easy'),
   task('dust', 'Вытереть пыль', 20),
 ]
+
+const teenChores: ChoreItem[] = [
+  task('dishes-full', 'Полный цикл посуды + посудомойка', 18),
+  task('laundry-full', 'Стирка: загрузить + развесить + убрать', 25, 'normal'),
+  task('vacuum-rooms', 'Пропылесосить все комнаты', 30, 'hard'),
+  task('trash-recycle', 'Мусор + сортировка вторсырья', 12, 'easy'),
+  task('bathroom-reset', 'Ванная: протереть + убрать средства', 20),
+  task('kitchen-counters', 'Кухня: столешницы + плита + вынести мусор', 22),
+  task('fridge-check', 'Проверить холодильник: просрочка + протереть', 15, 'normal'),
+  task('car-wash', 'Помыть машину снаружи или внутри', 35, 'hard'),
+  task('grocery-help', 'Помочь с продуктами: занести + разложить', 15),
+  task('room-reset', 'Своя комната: убрать поверхность + пылесос', 25),
+]
+
+const templates: Record<string, { sections: string[]; chores: ChoreItem[] }> = {
+  'weekend': {
+    sections: ['Дела по дому', 'Уход за собой'],
+    chores: defaultChores,
+  },
+  'daily': {
+    sections: ['Быстрый reset'],
+    chores: [
+      task('make-bed', 'Заправить кровать', 5, 'easy'),
+      task('dishes-quick', 'Помыть посуду после еды', 10),
+      task('surfaces', 'Протереть поверхности', 12),
+      task('trash-daily', 'Вынести мусор', 5, 'easy'),
+    ],
+  },
+  'teen': {
+    sections: ['Самостоятельность', 'Дом'],
+    chores: teenChores,
+  },
+  'deep': {
+    sections: ['Глубокая уборка'],
+    chores: [
+      ...defaultChores,
+      task('windows', 'Помыть окна / зеркала', 30, 'hard'),
+      task('fridge-deep', 'Разобрать холодильник', 35, 'hard'),
+    ],
+  },
+  'minimal': {
+    sections: ['Мини-квест'],
+    chores: [
+      task('dishes', 'Помыть посуду', 15),
+      task('trash', 'Мусор и пакеты', 10, 'easy'),
+      task('vacuum', 'Пропылесосить основные зоны', 20),
+    ],
+  },
+}
+
+
 
 const difficultyLabel: Record<Difficulty, string> = {
   easy: 'легко',
@@ -957,6 +1011,24 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     setStartHints([])
   }
 
+  const loadTemplate = (key: string) => {
+    const isTeenProfile = remoteState.childProfiles.find(p => p.id === selectedChildProfileId)?.ageGroup === 'teen'
+    const isTeen = isTeenProfile || key === 'teen'
+    const tpl = templates[key] || (isTeen ? templates.teen : templates.weekend)
+    const nextChores = (key === 'teen' || isTeen) ? teenChores : (tpl.chores || defaultChores)
+    const nextSections = (tpl && tpl.sections) || defaultSections
+    setChores(nextChores)
+    setSections(nextSections)
+    setCurrentSection(nextSections[0] || defaultSections[0])
+    setStartHints([])
+    if (key === 'teen' || isTeen) {
+      if (gameMode !== 'childQuest') switchGameMode('childQuest')
+      setStatus('Загружен шаблон для подростка. Отлично для самостоятельности!')
+    } else {
+      setStatus(`Загружен шаблон: ${key}`)
+    }
+  }
+
   const goToHome = () => {
     setPhase('setup')
     setAssigned([])
@@ -1422,7 +1494,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             Введите почту, чтобы сохранить или загрузить игру
             <span className="email-load-row">
               <input
-                placeholder="family@example.com"
+                placeholder="семья@example.com"
                 value={pairEmail}
                 onChange={(event) => setPairEmail(event.target.value)}
               />
@@ -1613,6 +1685,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             onAddChore={addChore}
             onAddSection={addSection}
             onDeleteItem={deleteItem}
+            onLoadTemplate={loadTemplate}
             onNewCategoryIcon={setNewCategoryIcon}
             onNewCategoryTitle={setNewCategoryTitle}
             onNewChore={setNewChore}
@@ -2087,10 +2160,16 @@ function ChildProfileManager({
 }) {
   const [starRules, setStarRules] = useState<StarRules>(childProfile?.starRules || defaultStarRules)
   const [rewards, setRewards] = useState<StarReward[]>(childProfile?.rewards || [])
+  const [ageGroup, setAgeGroup] = useState<'kid' | 'teen'>(childProfile?.ageGroup || 'kid')
+  const [goalLabel, setGoalLabel] = useState(childProfile?.currentGoal?.label || '')
+  const [goalTarget, setGoalTarget] = useState(childProfile?.currentGoal?.starsTarget || 30)
 
   useEffect(() => {
     setStarRules(childProfile?.starRules || defaultStarRules)
     setRewards(childProfile?.rewards || [])
+    setAgeGroup(childProfile?.ageGroup || 'kid')
+    setGoalLabel(childProfile?.currentGoal?.label || '')
+    setGoalTarget(childProfile?.currentGoal?.starsTarget || 30)
   }, [childProfile])
 
   const saveProfileSettings = () => {
@@ -2099,7 +2178,11 @@ function ChildProfileManager({
       window.alert('В каждой награде нужно указать и количество звёзд, и текст награды.')
       return
     }
-    onSave({ create: !selectedProfileId, starRules, rewards: filledRewards })
+    const patch: any = { create: !selectedProfileId, starRules, rewards: filledRewards, ageGroup }
+    if (goalLabel.trim() && goalTarget > 0) {
+      patch.currentGoal = { label: goalLabel.trim(), starsTarget: goalTarget }
+    }
+    onSave(patch)
   }
 
   return (
@@ -2114,7 +2197,7 @@ function ChildProfileManager({
             <option value="">Новый профиль</option>
             {childProfiles.map((profile) => (
               <option key={profile.id} value={profile.id}>
-                {profile.name}
+                {profile.name} {profile.ageGroup === 'teen' ? '👦' : ''}
               </option>
             ))}
           </select>
@@ -2125,6 +2208,40 @@ function ChildProfileManager({
         <button className="tiny-button alt" disabled={!selectedProfileId} type="button" onClick={onCopyLink}>
           Ссылка ребёнку
         </button>
+      </div>
+
+      <div className="teen-toggle">
+        <span>Возрастная группа:</span>
+        <button
+          type="button"
+          className={ageGroup === 'kid' ? 'pixel-button active' : 'pixel-button alt'}
+          onClick={() => setAgeGroup('kid')}
+        >
+          Ребёнок (5-11)
+        </button>
+        <button
+          type="button"
+          className={ageGroup === 'teen' ? 'pixel-button active' : 'pixel-button alt'}
+          onClick={() => setAgeGroup('teen')}
+        >
+          Подросток (12-17)
+        </button>
+        <small className="hint">Для подростков — другие награды, формулировки и акцент на самостоятельность.</small>
+      </div>
+
+      <div className="goal-editor">
+        <label>
+          Долгосрочная цель (накопить звёзды)
+          <input
+            placeholder="Например: новые наушники или поездка"
+            value={goalLabel}
+            onChange={(e) => setGoalLabel(e.target.value)}
+          />
+        </label>
+        <label>
+          Цель в звёздах
+          <input type="number" min={5} value={goalTarget} onChange={(e) => setGoalTarget(Number(e.target.value) || 30)} />
+        </label>
       </div>
       <section className="child-profile-section">
         <h3>Сколько звёзд получает ребёнок</h3>
@@ -2188,12 +2305,27 @@ function ChildProfileManager({
                 )
               }
             />
+            <select
+              value={(reward as any).category || ''}
+              onChange={(event) =>
+                setRewards((current) =>
+                  current.map((item, itemIndex) => (itemIndex === index ? { ...item, category: event.target.value || undefined } : item)),
+                )
+              }
+              title="Категория награды"
+            >
+              <option value="">—</option>
+              <option value="privilege">Привилегия</option>
+              <option value="experience">Опыт</option>
+              <option value="allowance">Деньги/карманные</option>
+              <option value="item">Вещь/подарок</option>
+            </select>
           </div>
         ))}
         <button
           className="tiny-button"
           type="button"
-          onClick={() => setRewards((current) => [...current, { id: makeId(), starsRequired: 5, label: '' }])}
+          onClick={() => setRewards((current) => [...current, { id: makeId(), starsRequired: 5, label: '', category: undefined }])}
         >
           + награда
         </button>
@@ -2250,6 +2382,11 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
 
   const unlocked = new Set(profile.achievementIds)
   const nextReward = profile.rewards.find((reward) => !reward.redeemedAt && profile.starBalance >= reward.starsRequired)
+  const level = computeLevel(profile.totalQuests || 0, profile.starBalance || 0)
+  const streak = computeStreak(profile.ledger || [])
+  const ageLabel = getAgeLabel(profile.ageGroup)
+  const goal = profile.currentGoal
+  const goalProgress = goal ? Math.min(100, Math.floor(((profile.starBalance || 0) / goal.starsTarget) * 100)) : 0
 
   return (
     <main className="game-shell child-cabinet-shell">
@@ -2258,28 +2395,41 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
         <div className="child-cabinet-hero">
           <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} />
           <div>
-            <p className="eyebrow">Личный кабинет</p>
+            <p className="eyebrow">{ageLabel} · Ур.{level} {streak > 1 ? `🔥 ${streak} дн.` : ''}</p>
             <h1>{profile.name}</h1>
             <div className="child-summary-stars">
               <StarSprite />
               <strong>{profile.starBalance}</strong>
               <span>звёзд</span>
+              {profile.moneyRate ? <span style={{marginLeft:8, fontSize:'0.8em'}}>· ~{Math.floor((profile.starBalance||0) * (profile.moneyRate||15))}₽ экв.</span> : null}
             </div>
           </div>
         </div>
       </header>
 
+      {goal && (
+        <div className="pixel-panel goal-bar">
+          <div style={{display:'flex', justifyContent:'space-between'}}>
+            <strong>Цель: {goal.label}</strong>
+            <span>{profile.starBalance} / {goal.starsTarget} ({goalProgress}%)</span>
+          </div>
+          <div className="progress-track"><div className="progress-fill" style={{width: `${goalProgress}%`}} /></div>
+        </div>
+      )}
+
       <section className="setup-grid child-cabinet-grid">
         <article className="pixel-panel">
-          <h2>Награды</h2>
+          <h2>Награды {profile.ageGroup === 'teen' ? '(самостоятельность)' : ''}</h2>
           <div className="history-list">
             {profile.rewards.map((reward) => {
               const canRedeem = !reward.redeemedAt && profile.starBalance >= reward.starsRequired
+              const cat = (reward as any).category
               return (
                 <div className="history-row history-row-actions" key={reward.id}>
                   <div className="history-row-body">
                     <strong>
                       {reward.starsRequired} <StarSprite small /> — {reward.label || 'Награда'}
+                      {cat ? <small style={{opacity:0.7}}> [{cat}]</small> : null}
                     </strong>
                     <span>{reward.redeemedAt ? `Получено ${formatDate(reward.redeemedAt)}` : canRedeem ? 'Можно забрать!' : `Ещё ${reward.starsRequired - profile.starBalance} звёзд`}</span>
                   </div>
@@ -2293,6 +2443,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
             })}
           </div>
           {nextReward && <p className="hint">Ближайшая цель: {nextReward.label}</p>}
+          {profile.moneyRate && <p className="hint">Курс: ~{profile.moneyRate} ₽ за звезду (для справки родителям)</p>}
         </article>
 
         <article className="pixel-panel">
@@ -2309,7 +2460,10 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
         </article>
 
         <article className="pixel-panel">
-          <h2>История квестов</h2>
+          <h2>История квестов <button className="tiny-button" style={{float:'right'}} onClick={() => {
+            const text = games.slice(0,10).map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')} — ${g.childOutcome?.starsEarned||0}★`).join('\n');
+            navigator.clipboard?.writeText(`Отчёт ${profile.name}: ${profile.starBalance}★ всего\n${text}`).then(()=>setStatus('Отчёт скопирован'));
+          }}>Копировать отчёт</button></h2>
           <div className="history-list">
             {games.map((game) => (
               <div className="history-row" key={game.id}>
@@ -2364,6 +2518,7 @@ function ChoreLibrary({
   onAddChore,
   onAddSection,
   onDeleteItem,
+  onLoadTemplate,
   onNewCategoryIcon,
   onNewCategoryTitle,
   onNewChore,
@@ -2384,6 +2539,7 @@ function ChoreLibrary({
   onAddChore: (groupId?: string) => void
   onAddSection: () => void
   onDeleteItem: (id: string, childId?: string) => void
+  onLoadTemplate?: (key: string) => void
   onNewCategoryIcon: (icon: string) => void
   onNewCategoryTitle: (title: string) => void
   onNewChore: (chore: { title: string; minutes: number; difficulty: Difficulty }) => void
@@ -2402,6 +2558,14 @@ function ChoreLibrary({
         <div className="panel-title">
           <span>3</span>
           <h2>Общий список дел</h2>
+        </div>
+        <div className="templates-row">
+          <span className="templates-label">Шаблоны:</span>
+          <button type="button" className="tiny-button" onClick={() => onLoadTemplate && onLoadTemplate('weekend')}>Выходные</button>
+          <button type="button" className="tiny-button" onClick={() => onLoadTemplate && onLoadTemplate('daily')}>Ежедневный</button>
+          <button type="button" className="tiny-button" onClick={() => onLoadTemplate && onLoadTemplate('teen')}>Подросток</button>
+          <button type="button" className="tiny-button" onClick={() => onLoadTemplate && onLoadTemplate('deep')}>Глубокая</button>
+          <button type="button" className="tiny-button" onClick={() => onLoadTemplate && onLoadTemplate('minimal')}>Мини</button>
         </div>
         <div className="section-tabs chores-section-tabs">
           {sections.map((section) => (
