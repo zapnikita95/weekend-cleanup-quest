@@ -190,6 +190,15 @@ const defaultPrizeTiers: PrizeTier[] = [
   { id: 'bronze', label: '', minPercent: 75 },
 ]
 
+const defaultLootboxRewards = ['+20xp', '+1 звезда', 'potion']
+const lootboxRewardOptions = [
+  { value: '+20xp', label: 'Опыт' },
+  { value: '+1 звезда', label: 'Звезда' },
+  { value: 'potion', label: 'Зелье' },
+  { value: 'candy', label: 'Конфетка' },
+  { value: 'other', label: 'Другое' },
+]
+
 const tierLabels: Record<Exclude<TierId, 'none'>, string> = {
   gold: 'Золото',
   silver: 'Серебро',
@@ -498,8 +507,6 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [gameMode, setGameMode] = useState<GameMode>(() => readLocalJson<GameMode>('wcq-game-mode', 'duo'))
   const [players, setPlayers] = useState<Player[]>(() => readPlayersForMode(readLocalJson<GameMode>('wcq-game-mode', 'duo')))
   const [pairEmail, setPairEmail] = useState(() => readLocalJson<string>('wcq-pair-email', ''))
-  const [parentAccessPin, setParentAccessPin] = useState('')
-  const [parentUnlocked, setParentUnlocked] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(() => !readLocalJson<boolean>('wcq-onboarding-dismissed', false))
   const [startHints, setStartHints] = useState<string[]>([])
   const [prize, setPrize] = useState(() => readLocalJson<string>('wcq-prize', ''))
@@ -512,11 +519,9 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }))
   })
   const [requirePhotoProof, setRequirePhotoProof] = useState(() => readLocalJson<boolean>('wcq-require-photo', false))
-  const [playOnStars, setPlayOnStars] = useState(true)
-  const [showAddChildModal, setShowAddChildModal] = useState(false)
-  const [newChildName, setNewChildName] = useState('')
-  const [newChildAgeGroup, setNewChildAgeGroup] = useState<'kid' | 'teen'>('kid')
-  const [newChildRegulars, setNewChildRegulars] = useState('Помыть посуду,Прибрать комнату')
+  const [playOnStars, setPlayOnStars] = useState(() => readLocalJson<'stars' | 'prizes'>('wcq-child-reward-mode', 'stars') === 'stars')
+  const [childProfileModalMode, setChildProfileModalMode] = useState<'create' | 'edit' | null>(null)
+  const [rewardModeEditorOpen, setRewardModeEditorOpen] = useState(false)
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
   const [extraChore, setExtraChore] = useState({ assignedTo: 0, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
   const [extraReviews, setExtraReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
@@ -610,6 +615,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   useEffect(() => {
     writeLocalJson('wcq-require-photo', requirePhotoProof)
   }, [requirePhotoProof])
+
+  useEffect(() => {
+    writeLocalJson('wcq-child-reward-mode', playOnStars ? 'stars' : 'prizes')
+  }, [playOnStars])
 
   useEffect(() => {
     writeLocalJson('wcq-target-score', targetScore)
@@ -724,6 +733,19 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       setSelectedChildProfileId(parentChildProfiles[0].id)
     }
   }, [gameMode, parentChildProfiles, selectedChildProfileId])
+
+  useEffect(() => {
+    if (gameMode !== 'childQuest' || !activeChildProfile) return
+    setPlayers([
+      {
+        email: activeChildProfile.childEmail,
+        name: activeChildProfile.name,
+        avatar: activeChildProfile.avatar,
+        avatarUrl: activeChildProfile.avatarUrl,
+        isChild: true,
+      },
+    ])
+  }, [activeChildProfile, gameMode])
 
   const currentPairBoard = remoteState.leaderboard[gameMode].find((entry) => entry.pairKey === currentPairKey)
   const currentActiveGame = remoteState.activeGames.find((game) => game.pairKey === currentPairKey)
@@ -1058,10 +1080,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     const blockers: string[] = []
     if (!selectedTasks.length) blockers.push('chores')
     if (gameMode === 'childQuest') {
+      if (!activeChildProfile) blockers.push('child-profile')
       if (!playOnStars) {
         if (!prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) blockers.push('gold-prize')
       }
-      if (!players[0]?.name.trim()) blockers.push('child-name')
     } else if (!prize.trim()) {
       blockers.push('prize')
     }
@@ -1069,15 +1091,25 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     return blockers
   }
 
+  const scrollToStartBlocker = (blockers: string[]) => {
+    const first = ['email', 'child-profile', 'child-name', 'chores', 'gold-prize', 'prize'].find((key) => blockers.includes(key))
+    if (!first) return
+    window.setTimeout(() => {
+      document.querySelector(`[data-start-field="${first}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 0)
+  }
+
   const handleStartClick = () => {
     const blockers = getStartBlockers()
     setStartHints(blockers)
     if (blockers.length) {
       if (blockers.includes('email')) setStatus('Введите почту, чтобы сохранить игру в историю.')
+      else if (blockers.includes('child-profile')) setStatus('Сначала добавьте или выберите ребёнка для квеста.')
       else if (blockers.includes('chores')) setStatus('Выберите хотя бы одно дело в списке.')
       else if (blockers.includes('gold-prize')) setStatus('Укажите приз за золото (1 место).')
       else if (blockers.includes('child-name')) setStatus('Введите имя ребёнка.')
       else if (blockers.includes('prize')) setStatus('Укажите приз или награду.')
+      scrollToStartBlocker(blockers)
       return
     }
     startRound()
@@ -1100,12 +1132,12 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       return
     }
     if (gameMode === 'childQuest') {
-      if (!prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) {
-        setStatus('Укажите приз за золото (1 место).')
+      if (!activeChildProfile) {
+        setStatus('Сначала добавьте или выберите ребёнка для квеста.')
         return
       }
-      if (!players[0]?.name.trim()) {
-        setStatus('Введите имя ребёнка.')
+      if (!playOnStars && !prizeTiers.find((tier) => tier.id === 'gold')?.label.trim()) {
+        setStatus('Укажите приз за золото (1 место).')
         return
       }
     } else if (!prize.trim()) {
@@ -1176,8 +1208,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             email: normalizeEmail(player.email),
             isChild: Boolean(players[index]?.isChild),
           })),
-          prize: gameMode === 'childQuest' ? prizeTiers.find((tier) => tier.id === 'gold')?.label || '' : prize,
-          prizeTiers: gameMode === 'childQuest' ? prizeTiers : undefined,
+          prize: gameMode === 'childQuest' ? (!playOnStars ? prizeTiers.find((tier) => tier.id === 'gold')?.label || '' : '') : prize,
+          prizeTiers: gameMode === 'childQuest' && !playOnStars ? prizeTiers : undefined,
           childPlayerIndex: gameMode === 'childQuest' ? childPlayerIndex : undefined,
           parentPlayerIndex: gameMode === 'childQuest' ? parentPlayerIndex : undefined,
           requirePhotoProof: gameMode === 'childQuest' ? requirePhotoProof : undefined,
@@ -1432,8 +1464,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               coins: childCoins,
               targetScore,
               tier: childTier,
-              prizeLabel: prizeTiers.find((tier) => tier.id === childTier)?.label || '',
-              starsEarned: starsForTier(childTier, activeChildProfile.starRules || defaultStarRules),
+              prizeLabel: playOnStars ? '' : prizeTiers.find((tier) => tier.id === childTier)?.label || '',
+              starsEarned: playOnStars ? starsForTier(childTier, activeChildProfile.starRules || defaultStarRules) : 0,
               choresCompleted: assigned.filter((chore) => chore.completed).length,
             }
           : undefined
@@ -1446,8 +1478,8 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           })),
           winnerEmail,
           mode: gameMode,
-          prize: gameMode === 'childQuest' ? prizeTiers.find((tier) => tier.id === childTier)?.label || prize : prize,
-          prizeTiers: gameMode === 'childQuest' ? prizeTiers : undefined,
+          prize: gameMode === 'childQuest' ? (!playOnStars ? prizeTiers.find((tier) => tier.id === childTier)?.label || prize : '') : prize,
+          prizeTiers: gameMode === 'childQuest' && !playOnStars ? prizeTiers : undefined,
           childOutcome,
           roundMinutes,
           targetScore,
@@ -1472,11 +1504,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const saveChildProfile = async (patch: Partial<ChildProfile> & { create?: boolean }) => {
     if (!pairEmail.trim()) {
       setStatus('Сначала укажите почту семьи.')
-      return
-    }
-    if (parentChildProfiles.length > 0 && !parentUnlocked) {
-      setStatus('Введите PIN родителя для редактирования наград.')
-      return
+      return false
     }
     if (patch.create) {
       const name = patch.name || players[0]?.name || '';
@@ -1484,7 +1512,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       const dup = parentChildProfiles.find(p => p.name.toLowerCase() === name.toLowerCase() && p.avatar === avatar);
       if (dup) {
         setStatus('Такой ребенок уже есть, дубли не разрешены.');
-        return;
+        return false;
       }
     }
     try {
@@ -1505,9 +1533,12 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
       })
       setRemoteState(normalizeApiState(result.state))
       if (patch.create) setSelectedChildProfileId(result.profile.id)
+      setPlayers([{ email: result.profile.childEmail, name: result.profile.name, avatar: result.profile.avatar, avatarUrl: result.profile.avatarUrl, isChild: true }])
       setStatus('Профиль сохранён!')
+      return true
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось сохранить профиль ребёнка.')
+      return false
     }
   }
 
@@ -1528,7 +1559,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         <div>
           <h1>Tidy Titans</h1>
           <p className="app-subtitle">Уборка как игра</p>
-          <label className={`pair-email-label ${startHints.includes('email') ? 'field-error' : ''}`}>
+          <label className={`pair-email-label ${startHints.includes('email') ? 'field-error' : ''}`} data-start-field="email">
             Введите почту, чтобы сохранить или загрузить игру
             <span className="email-load-row">
               <input
@@ -1626,82 +1657,72 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                 </label>
               )}
               {gameMode === 'childQuest' && (
-                <div className="child-setup-block">
+                <div className={`child-setup-block ${startHints.includes('child-profile') ? 'field-error' : ''}`} data-start-field="child-profile">
                   <p className="hint">
                     Один персонаж — ребёнок. Цель: <strong>{recommendedScore}</strong> монет (считается из выбранных дел).
                   </p>
-                  <div style={{margin: '8px 0'}}>
-                    <label><input type="radio" checked={playOnStars} onChange={() => setPlayOnStars(true)} /> Играем на звезды (из долгосрочной цели)</label>
-                    <label style={{marginLeft:8}}><input type="radio" checked={!playOnStars} onChange={() => setPlayOnStars(false)} /> Играем на приз</label>
-                  </div>
-                  {parentChildProfiles.length > 0 && (
-                    <div style={{marginTop:8}}>
-                      <label>
-                        PIN родителя (защита от детей):
-                        <input type="password" value={parentAccessPin} onChange={e => setParentAccessPin(e.target.value)} placeholder="****" maxLength={6} />
-                      </label>
-                      <button className="tiny-button" onClick={() => setParentUnlocked(parentAccessPin.length >= 3)}>Разблокировать родительский режим</button>
-                      {!parentUnlocked && <small style={{color:'red'}}>Введите PIN чтобы редактировать награды и настройки</small>}
-                    </div>
-                  )}
                   {parentChildProfiles.length === 0 ? (
-                    <button className="pixel-button" type="button" onClick={() => setShowAddChildModal(true)}>Добавить ребенка</button>
-                  ) : (
-                    <div>
-                      {parentChildProfiles.map(p => (
-                        <div key={p.id} style={{display:'flex', alignItems:'center', gap:8, padding:4, border: selectedChildProfileId === p.id ? '2px solid #000' : '1px solid #ccc', cursor:'pointer'}} onClick={() => setSelectedChildProfileId(p.id)}>
-                          <PixelAvatar avatar={p.avatar} avatarUrl={p.avatarUrl} small />
-                          <span>{p.name} {p.ageGroup === 'teen' ? '(подросток)' : ''}</span>
-                        </div>
-                      ))}
-                      <button className="tiny-button" type="button" onClick={() => setShowAddChildModal(true)}>Добавить ребенка</button>
+                    <div className="child-empty-card">
+                      <strong>Профилей детей пока нет</strong>
+                      <span>Для квеста нужен один профиль ребёнка. Все настройки откроются в отдельном окне.</span>
+                      <button className="pixel-button alt" type="button" onClick={() => setChildProfileModalMode('create')}>
+                        Добавить ребёнка
+                      </button>
                     </div>
-                  )}
-                  {selectedChildProfileId && parentChildProfiles.length > 0 && (
-                    <ChildProfileManager
-                      childProfile={activeChildProfile}
-                      childProfiles={parentChildProfiles}
-                      onCopyLink={copyChildCabinetLink}
-                      onSave={saveChildProfile}
-                      onSelectProfile={setSelectedChildProfileId}
-                      selectedProfileId={selectedChildProfileId}
-                    />
+                  ) : (
+                    <div className="child-profile-picker">
+                      <div className="child-profile-card-list">
+                        {parentChildProfiles.map((profile) => (
+                          <button
+                            className={selectedChildProfileId === profile.id ? 'child-profile-chip active' : 'child-profile-chip'}
+                            key={profile.id}
+                            type="button"
+                            onClick={() => setSelectedChildProfileId(profile.id)}
+                          >
+                            <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} small />
+                            <span>
+                              <strong>{profile.name}</strong>
+                              <small>{profile.ageGroup === 'teen' ? 'Подросток' : 'Ребёнок'}</small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="child-profile-actions">
+                        <button className="tiny-button" type="button" onClick={() => setChildProfileModalMode('create')}>
+                          Добавить ребёнка
+                        </button>
+                        <button className="tiny-button alt" disabled={!selectedChildProfileId} type="button" onClick={() => setChildProfileModalMode('edit')}>
+                          Настройки профиля
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
 
-              {showAddChildModal && (
-                <div style={{position: 'fixed', top:0, left:0, right:0, bottom:0, background: 'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100}}>
-                  <div className="pixel-panel" style={{width: '90%', maxWidth: 400, padding:16}}>
-                    <h2>Добавить ребенка</h2>
-                    <label>Имя ребенка (первым делом)
-                      <input value={newChildName} onChange={e=>setNewChildName(e.target.value)} placeholder="Имя" />
-                    </label>
-                    <div style={{display:'flex', gap:8, margin: '8px 0'}}>
-                      <button className={newChildAgeGroup === 'kid' ? 'pixel-button active' : 'pixel-button'} onClick={() => setNewChildAgeGroup('kid')} style={{flex:1}}>Ребёнок (5-11)</button>
-                      <button className={newChildAgeGroup === 'teen' ? 'pixel-button active' : 'pixel-button'} onClick={() => setNewChildAgeGroup('teen')} style={{flex:1}}>Подросток (12-17)</button>
-                    </div>
-                    <label>Регулярные задания (через запятую)
-                      <input value={newChildRegulars} onChange={e=>setNewChildRegulars(e.target.value)} />
-                    </label>
-                    <div style={{display:'flex', gap:8, marginTop:12}}>
-                      <button className="pixel-button" onClick={async () => {
-                        if (!newChildName.trim()) { alert('Введите имя'); return; }
-                        const regs = newChildRegulars.split(',').map(s=>s.trim()).filter(Boolean).map((l,i) => ({id:'reg'+i, label:l, xp:15, stars:1}));
-                        const patch = { create: true, name: newChildName.trim(), ageGroup: newChildAgeGroup, regularTasks: regs };
-                        await saveChildProfile(patch);
-                        setShowAddChildModal(false);
-                        setNewChildName(''); setNewChildRegulars('Помыть посуду,Прибрать комнату');
-                        setStatus('Ребенок добавлен!');
-                      }}>Создать и выбрать</button>
-                      <button className="tiny-button" onClick={() => setShowAddChildModal(false)}>Отмена</button>
-                    </div>
-                  </div>
+              {childProfileModalMode && (
+                <div className="modal-backdrop" role="dialog" aria-modal="true">
+                  <article className="pixel-panel child-profile-modal">
+                    <button className="modal-close-button" type="button" onClick={() => setChildProfileModalMode(null)} aria-label="Закрыть">
+                      ×
+                    </button>
+                    <ChildProfileManager
+                      childProfile={childProfileModalMode === 'create' ? null : activeChildProfile}
+                      childProfiles={parentChildProfiles}
+                      isFirstProfile={parentChildProfiles.length === 0}
+                      mode={childProfileModalMode}
+                      onClose={() => setChildProfileModalMode(null)}
+                      onCopyLink={copyChildCabinetLink}
+                      onSave={saveChildProfile}
+                      onSelectProfile={setSelectedChildProfileId}
+                      selectedProfileId={childProfileModalMode === 'create' ? '' : selectedChildProfileId}
+                    />
+                  </article>
                 </div>
               )}
             </div>
-            <div className="players-editor">
-              {players.slice(0, gameMode === 'solo' || gameMode === 'childQuest' ? 1 : players.length).map((player, index) => (
+            {gameMode !== 'childQuest' && <div className="players-editor">
+              {players.slice(0, gameMode === 'solo' ? 1 : players.length).map((player, index) => (
                 <ProfileEditor
                   index={index}
                   key={index}
@@ -1713,11 +1734,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   profiles={remoteState.profiles}
                   canRemove={gameMode === 'duo' && players.length > 1}
                   onRemovePlayer={removePlayer}
-                  nameLabel={gameMode === 'childQuest' ? 'Имя ребёнка' : 'Имя героя'}
+                  nameLabel="Имя героя"
                   highlightName={startHints.includes('child-name')}
                 />
               ))}
-            </div>
+            </div>}
             {gameMode === 'duo' && (
               <button className="pixel-button alt wide" type="button" onClick={addPlayer}>
                 Добавить персонажа
@@ -1787,13 +1808,17 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
             onUpdateItem={updateItem}
             sections={sections}
           />
-          <div style={{marginTop: '-6px', marginBottom: '8px'}}>
-            <button type="button" className="tiny-button" onClick={loadRecurring}>🔁 Повторить дела из прошлой уборки</button>
+          <div className="chore-quick-actions">
+            <button type="button" className="tiny-button" onClick={loadRecurring}>Повторить дела из прошлой уборки</button>
             {gameMode === 'childQuest' && (
-              <label style={{marginLeft: '8px', display: 'inline-flex', alignItems: 'center', fontSize: '12px'}}>
-                <input checked={requirePhotoProof} type="checkbox" onChange={(event) => setRequirePhotoProof(event.target.checked)} />
-                <span style={{marginLeft: '4px'}}>Нужны фото</span>
-              </label>
+              <button
+                className={requirePhotoProof ? 'photo-proof-toggle is-on' : 'photo-proof-toggle'}
+                type="button"
+                onClick={() => setRequirePhotoProof((current) => !current)}
+              >
+                <span className="pixel-check-box" aria-hidden>{requirePhotoProof ? '✓' : ''}</span>
+                Нужны фото
+              </button>
             )}
           </div>
 
@@ -1823,7 +1848,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
           <article className={`pixel-panel start-card ${showOnboarding ? 'tour-start' : ''}`}>
             <h2>Готовы к уборке?</h2>
             <div className="start-card-body">
-              <p className={startHints.includes('chores') ? 'start-hint-error' : ''}>
+              <p className={startHints.includes('chores') ? 'start-hint-error' : ''} data-start-field="chores">
                 Выбрано дел: <strong>{selectedTasks.length}</strong>.{' '}
                 {gameMode === 'childQuest'
                   ? `Цель ребёнка: ${recommendedScore} монет.`
@@ -1832,7 +1857,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                     : 'Можно распределить целую категорию, а игра сама разорвёт её, если лимит времени не даёт отдать всё одному.'}
               </p>
               {gameMode !== 'childQuest' && (
-                <label className={startHints.includes('prize') ? 'field-error' : ''}>
+                <label className={startHints.includes('prize') ? 'field-error' : ''} data-start-field="prize">
                   Приз / награда
                   <input
                     placeholder={gameMode === 'solo' ? 'Например: купить себе вкусняшку' : 'Например: победителю массаж / ужин'}
@@ -1844,37 +1869,69 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   />
                 </label>
               )}
-              {gameMode === 'childQuest' && !playOnStars && (
-                <div className={`tier-prize-grid start-prize-grid ${startHints.includes('gold-prize') ? 'field-error' : ''}`}>
-                  {prizeTiers.map((tier) => (
-                    <label key={tier.id} className={tier.id === 'gold' && startHints.includes('gold-prize') ? 'field-error' : ''}>
-                      <span className="tier-prize-label">
-                        <PrizeSprite tier={tier.id} small />
-                        {tierLabels[tier.id]} ({tier.minPercent}%+){tier.id === 'gold' ? ' *' : ''}
-                      </span>
-                      <input
-                        placeholder={
-                          tier.id === 'gold'
-                            ? 'Например: поход в кино'
-                            : tier.id === 'silver'
-                              ? 'Например: мороженое'
-                              : 'Например: наклейка'
-                        }
-                        value={tier.label}
-                        onChange={(event) => {
-                          setPrizeTiers((current) =>
-                            current.map((item) => (item.id === tier.id ? { ...item, label: event.target.value } : item)),
-                          )
-                          if (tier.id === 'gold') setStartHints((current) => current.filter((item) => item !== 'gold-prize'))
-                        }}
-                      />
-                    </label>
-                  ))}
-                  <p className="hint">* Обязателен только приз за золото. Серебро и бронза — по желанию.</p>
+              {gameMode === 'childQuest' && (
+                <div className={`child-reward-mode-panel ${startHints.includes('gold-prize') ? 'field-error' : ''}`} data-start-field="gold-prize">
+                  {!rewardModeEditorOpen ? (
+                    <p className="hint">
+                      {playOnStars && activeChildProfile
+                        ? `Игра на звёзды: золото ${activeChildProfile.starRules?.gold || 3}★, серебро ${activeChildProfile.starRules?.silver || 2}★, бронза ${activeChildProfile.starRules?.bronze || 1}★.`
+                        : playOnStars
+                          ? 'Игра на звёзды. Сначала выберите ребёнка, чтобы взять его правила звёзд.'
+                          : `Игра на призы: золото — ${prizeTiers.find((tier) => tier.id === 'gold')?.label || 'не заполнено'}.`}
+                      {' '}
+                      <button className="tiny-button" type="button" onClick={() => setRewardModeEditorOpen(true)}>
+                        Изменить
+                      </button>
+                    </p>
+                  ) : (
+                    <div className="reward-mode-editor">
+                      <div className="reward-mode-buttons">
+                        <button className={playOnStars ? 'pixel-button active' : 'pixel-button alt'} type="button" onClick={() => setPlayOnStars(true)}>
+                          На звёзды
+                        </button>
+                        <button className={!playOnStars ? 'pixel-button active' : 'pixel-button alt'} type="button" onClick={() => setPlayOnStars(false)}>
+                          На призы
+                        </button>
+                      </div>
+                      {playOnStars ? (
+                        <p className="hint">
+                          Будут начисляться звёзды из профиля ребёнка: золото {activeChildProfile?.starRules?.gold || 3}★, серебро {activeChildProfile?.starRules?.silver || 2}★, бронза {activeChildProfile?.starRules?.bronze || 1}★.
+                        </p>
+                      ) : (
+                        <div className="tier-prize-grid start-prize-grid">
+                          {prizeTiers.map((tier) => (
+                            <label key={tier.id} className={tier.id === 'gold' && startHints.includes('gold-prize') ? 'field-error' : ''}>
+                              <span className="tier-prize-label">
+                                <PrizeSprite tier={tier.id} small />
+                                {tierLabels[tier.id]} ({tier.minPercent}%+){tier.id === 'gold' ? ' *' : ''}
+                              </span>
+                              <input
+                                placeholder={
+                                  tier.id === 'gold'
+                                    ? 'Например: поход в кино'
+                                    : tier.id === 'silver'
+                                      ? 'Например: мороженое'
+                                      : 'Например: наклейка'
+                                }
+                                value={tier.label}
+                                onChange={(event) => {
+                                  setPrizeTiers((current) =>
+                                    current.map((item) => (item.id === tier.id ? { ...item, label: event.target.value } : item)),
+                                  )
+                                  if (tier.id === 'gold') setStartHints((current) => current.filter((item) => item !== 'gold-prize'))
+                                }}
+                              />
+                            </label>
+                          ))}
+                          <p className="hint">* Обязателен только приз за золото. Серебро и бронза — по желанию.</p>
+                        </div>
+                      )}
+                      <button className="tiny-button" type="button" onClick={() => setRewardModeEditorOpen(false)}>
+                        Готово
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-              {gameMode === 'childQuest' && playOnStars && activeChildProfile && (
-                <p className="hint">Игра на звезды из цели: Золото {activeChildProfile.starRules?.gold || 3}★, Серебро {activeChildProfile.starRules?.silver || 2}★, Бронза {activeChildProfile.starRules?.bronze || 1}★. <button className="tiny-button" onClick={() => alert('Отредактируйте в профиле ребенка')}>Изменить</button></p>
               )}
               {startHints.length > 0 && (
                 <p className="start-blocker-hint">Заполните подсвеченные поля, чтобы запустить игру.</p>
@@ -2271,6 +2328,9 @@ function ModeSummaryPanel({
 function ChildProfileManager({
   childProfile,
   childProfiles,
+  isFirstProfile,
+  mode,
+  onClose,
   onCopyLink,
   onSave,
   onSelectProfile,
@@ -2278,81 +2338,159 @@ function ChildProfileManager({
 }: {
   childProfile: ChildProfile | null
   childProfiles: ChildProfile[]
+  isFirstProfile: boolean
+  mode: 'create' | 'edit'
+  onClose: () => void
   onCopyLink: () => void
-  onSave: (patch: Partial<ChildProfile> & { create?: boolean }) => Promise<void>
+  onSave: (patch: Partial<ChildProfile> & { create?: boolean }) => Promise<boolean>
   onSelectProfile: (id: string) => void
   selectedProfileId: string
 }) {
+  const [profileName, setProfileName] = useState(childProfile?.name || '')
   const [starRules, setStarRules] = useState<StarRules>(childProfile?.starRules || defaultStarRules)
   const [rewards, setRewards] = useState<StarReward[]>(childProfile?.rewards || [])
   const [ageGroup, setAgeGroup] = useState<'kid' | 'teen'>(childProfile?.ageGroup || 'kid')
   const [goalLabel, setGoalLabel] = useState(childProfile?.currentGoal?.label || '')
   const [goalTarget, setGoalTarget] = useState(childProfile?.currentGoal?.starsTarget || 30)
+  const [regularTasks, setRegularTasks] = useState<NonNullable<ChildProfile['regularTasks']>>(childProfile?.regularTasks || [])
+  const [lootboxRewards, setLootboxRewards] = useState<string[]>(childProfile?.lootboxRewards?.length ? childProfile.lootboxRewards : defaultLootboxRewards)
+  const [parentPin, setParentPin] = useState('')
 
   useEffect(() => {
+    setProfileName(childProfile?.name || '')
     setStarRules(childProfile?.starRules || defaultStarRules)
     setRewards(childProfile?.rewards || [])
     setAgeGroup(childProfile?.ageGroup || 'kid')
     setGoalLabel(childProfile?.currentGoal?.label || '')
     setGoalTarget(childProfile?.currentGoal?.starsTarget || 30)
+    setRegularTasks(childProfile?.regularTasks || [])
+    setLootboxRewards(childProfile?.lootboxRewards?.length ? childProfile.lootboxRewards : defaultLootboxRewards)
   }, [childProfile])
 
-  const saveProfileSettings = () => {
+  const saveProfileSettings = async () => {
+    if (!profileName.trim()) {
+      window.alert('Введите имя ребёнка.')
+      return
+    }
+    if (mode === 'create' && isFirstProfile && parentPin.trim().length < 4) {
+      window.alert('Задайте PIN родителя минимум из 4 символов.')
+      return
+    }
     const filledRewards = rewards.filter((reward) => reward.label.trim() || reward.starsRequired > 0)
     if (filledRewards.some((reward) => !reward.label.trim() || reward.starsRequired <= 0)) {
       window.alert('В каждой награде нужно указать и количество звёзд, и текст награды.')
       return
     }
-    const patch: any = { create: !selectedProfileId, starRules, rewards: filledRewards, ageGroup }
+    const cleanRegularTasks = regularTasks
+      .map((task) => ({ ...task, label: task.label.trim(), xp: Number(task.xp || 0), stars: Number(task.stars || 0) }))
+      .filter((task) => task.label)
+    if (regularTasks.length !== cleanRegularTasks.length) {
+      window.alert('В регулярных заданиях удалите пустые строки или заполните название.')
+      return
+    }
+    if (lootboxRewards.length === 1) {
+      window.alert('Для лутбоксов выберите минимум 2 варианта или выключите их полностью.')
+      return
+    }
+    const patch: Partial<ChildProfile> & { create?: boolean } = {
+      create: mode === 'create',
+      name: profileName.trim(),
+      starRules,
+      rewards: filledRewards,
+      ageGroup,
+      regularTasks: cleanRegularTasks,
+      lootboxRewards,
+    }
     if (goalLabel.trim() && goalTarget > 0) {
       patch.currentGoal = { label: goalLabel.trim(), starsTarget: goalTarget }
     }
-    const pendingLoot = (window as any)._pendingLootbox
-    if (pendingLoot && pendingLoot.length) patch.lootboxRewards = pendingLoot
-    onSave(patch)
+    if (mode === 'create' && isFirstProfile) {
+      writeLocalJson('wcq-parent-pin-created', true)
+    }
+    const saved = await onSave(patch)
+    if (saved) onClose()
+  }
+
+  const updateRegularTask = (index: number, patch: Partial<NonNullable<ChildProfile['regularTasks']>[number]>) => {
+    setRegularTasks((current) => current.map((task, taskIndex) => (taskIndex === index ? { ...task, ...patch } : task)))
+  }
+
+  const toggleLootboxReward = (value: string) => {
+    setLootboxRewards((current) =>
+      current.includes(value) ? current.filter((reward) => reward !== value) : [...current, value],
+    )
   }
 
   return (
     <div className="child-profile-manager">
+      <div className="child-profile-header">
+        <div>
+          <p className="eyebrow">{mode === 'create' ? 'Новый профиль' : 'Личный кабинет родителя'}</p>
+          <h2>{mode === 'create' ? 'Добавить ребёнка' : 'Настройки ребёнка'}</h2>
+        </div>
+        <div className="child-profile-header-actions">
+          <button className="tiny-button" type="button" onClick={saveProfileSettings}>
+            Сохранить профиль
+          </button>
+          <button className="tiny-button alt" disabled={!selectedProfileId} type="button" onClick={onCopyLink}>
+            Ссылка на ЛК ребёнка
+          </button>
+        </div>
+      </div>
+
       <div className="child-profile-toolbar">
+        {mode === 'edit' && (
+          <label>
+            Профиль ребёнка
+            <select
+              value={selectedProfileId}
+              onChange={(event) => onSelectProfile(event.target.value)}
+            >
+              {childProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} {profile.ageGroup === 'teen' ? '(подросток)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
-          Профиль ребёнка
-          <select
-            value={selectedProfileId}
-            onChange={(event) => onSelectProfile(event.target.value)}
-          >
-            <option value="">Новый профиль</option>
-            {childProfiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.name} {profile.ageGroup === 'teen' ? '👦' : ''}
-              </option>
-            ))}
-          </select>
+          Имя ребёнка
+          <input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Например: Имануил" />
         </label>
-        <button className="tiny-button" type="button" onClick={saveProfileSettings}>
-          Сохранить профиль
-        </button>
-        <button className="tiny-button alt" disabled={!selectedProfileId} type="button" onClick={onCopyLink}>
-          Ссылка на ЛК ребёнка (копировать)
-        </button>
+        {mode === 'create' && isFirstProfile && (
+          <label>
+            PIN родителя
+            <input
+              maxLength={12}
+              type="password"
+              value={parentPin}
+              onChange={(event) => setParentPin(event.target.value)}
+              placeholder="Задаётся один раз"
+            />
+            <small className="hint">Дальше PIN не будет висеть на стартовом экране. Позже его можно будет менять в кабинете родителя.</small>
+          </label>
+        )}
       </div>
 
       <div className="teen-toggle">
         <span>Возрастная группа:</span>
-        <button
-          type="button"
-          className={ageGroup === 'kid' ? 'pixel-button active' : 'pixel-button alt'}
-          onClick={() => setAgeGroup('kid')}
-        >
-          Ребёнок (5-11)
-        </button>
-        <button
-          type="button"
-          className={ageGroup === 'teen' ? 'pixel-button active' : 'pixel-button alt'}
-          onClick={() => setAgeGroup('teen')}
-        >
-          Подросток (12-17)
-        </button>
+        <div className="teen-toggle-buttons">
+          <button
+            type="button"
+            className={ageGroup === 'kid' ? 'pixel-button active' : 'pixel-button alt'}
+            onClick={() => setAgeGroup('kid')}
+          >
+            Ребёнок (5-11)
+          </button>
+          <button
+            type="button"
+            className={ageGroup === 'teen' ? 'pixel-button active' : 'pixel-button alt'}
+            onClick={() => setAgeGroup('teen')}
+          >
+            Подросток (12-17)
+          </button>
+        </div>
         <small className="hint">Для подростков — другие награды, формулировки и акцент на самостоятельность.</small>
       </div>
 
@@ -2462,44 +2600,78 @@ function ChildProfileManager({
       <section className="child-profile-section">
         <h3>Регулярные задания (для ежедневного выполнения)</h3>
         <p className="hint">Ребёнок сможет отмечать их в своём кабинете и получать XP/звёзды.</p>
-        {/* For simplicity, static in this version; parent can edit via profile later */}
+        <div className="regular-task-editor">
+          {regularTasks.map((task, index) => (
+            <div className="regular-task-row" key={task.id}>
+              <input
+                placeholder="Например: заправить кровать"
+                value={task.label}
+                onChange={(event) => updateRegularTask(index, { label: event.target.value })}
+              />
+              <label>
+                XP
+                <input
+                  min={0}
+                  type="number"
+                  value={numberInputValue(task.xp)}
+                  onChange={(event) => updateRegularTask(index, { xp: numberFromInput(event.target.value) })}
+                />
+              </label>
+              <label>
+                Звёзды
+                <input
+                  min={0}
+                  type="number"
+                  value={numberInputValue(task.stars)}
+                  onChange={(event) => updateRegularTask(index, { stars: numberFromInput(event.target.value) })}
+                />
+              </label>
+              <button
+                className="tiny-button danger"
+                type="button"
+                onClick={() => setRegularTasks((current) => current.filter((_, taskIndex) => taskIndex !== index))}
+              >
+                Убрать
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="tiny-button"
+          type="button"
+          onClick={() => setRegularTasks((current) => [...current, { id: makeId(), label: '', xp: 15, stars: 1 }])}
+        >
+          + регулярное задание
+        </button>
       </section>
 
       <section className="child-profile-section">
         <h3>Содержимое лутбоксов</h3>
-        <label style={{display:'flex', alignItems:'center', gap:4}}>
-          <input type="checkbox" checked={!!(childProfile?.lootboxRewards && childProfile.lootboxRewards.length > 0)} onChange={e => {
-            const enabled = e.target.checked;
-            const def = enabled ? ['Опыт', 'Звезда', 'Зелье'] : [];
-            (window as any)._pendingLootbox = def;
-            // force re render
-          }} /> Лутбоксы включены (минимум 2 или выкл)
+        <label className="pixel-check lootbox-master-check">
+          <input
+            checked={lootboxRewards.length > 0}
+            type="checkbox"
+            onChange={(event) => setLootboxRewards(event.target.checked ? defaultLootboxRewards : [])}
+          />
+          <span className="pixel-check-box" aria-hidden>{lootboxRewards.length > 0 ? '✓' : ''}</span>
+          <span>Лутбоксы включены</span>
         </label>
-        {['Опыт (+XP)', 'Звезда (+звёзды)', 'Зелье (бонус в игре, доп. баллы)', 'Конфетка (реальная сладость)', 'Другое'].map(opt => {
-          const current = (childProfile?.lootboxRewards || []);
-          const isChecked = current.some(c => c.includes(opt.split(' ')[0]));
-          return (
-            <label key={opt} style={{display:'block'}}>
-              <input type="checkbox" checked={isChecked} onChange={e => {
-                let list = [...(current || [])];
-                const key = opt.split(' ')[0];
-                if (e.target.checked) {
-                  if (!list.some(l => l.includes(key))) list.push(key === 'Другое' ? 'Другое: ' : key);
-                } else {
-                  list = list.filter(l => !l.includes(key));
-                }
-                (window as any)._pendingLootbox = list;
-              }} /> {opt}
-            </label>
-          );
-        })}
-        <input placeholder="Если Другое: опишите здесь" onChange={e => {
-          const list = (window as any)._pendingLootbox || [];
-          const idx = list.findIndex((l:string) => l.startsWith('Другое'));
-          if (idx >=0) list[idx] = 'Другое: ' + e.target.value;
-          (window as any)._pendingLootbox = list;
-        }} />
-        <small>Выберите 2+ . Зелье: дает бонусы. Конфетка: купите ребенку сладость. Другое: свое.</small>
+        {lootboxRewards.length > 0 && (
+          <div className="lootbox-options-grid">
+            {lootboxRewardOptions.map((option) => (
+              <label className="pixel-check" key={option.value}>
+                <input
+                  checked={lootboxRewards.includes(option.value)}
+                  type="checkbox"
+                  onChange={() => toggleLootboxReward(option.value)}
+                />
+                <span className="pixel-check-box" aria-hidden>{lootboxRewards.includes(option.value) ? '✓' : ''}</span>
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <small className="hint">При включении автоматически выбираются опыт, звезда и зелье. Можно добавить ещё варианты.</small>
       </section>
       {childProfile && childProfile.pendingRegulars && childProfile.pendingRegulars.length > 0 && (
         <section className="child-profile-section">
@@ -2671,7 +2843,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                   body: JSON.stringify({ pendingRegulars: pending })
                 })
                 setStatus(`Отмечено "${task.label}" — ждет подтверждения родителя`)
-              } catch(e) { setStatus('Отмечено локально') }
+              } catch { setStatus('Отмечено локально') }
             }}>Отметить (ждет подтверждения)</button>
           </div>
         ))}
