@@ -198,6 +198,7 @@ const lootboxRewardOptions = [
   { value: 'candy', label: 'Конфетка' },
   { value: 'other', label: 'Другое' },
 ]
+const standardLootboxRewardValues = new Set(lootboxRewardOptions.map((option) => option.value))
 
 const tierLabels: Record<Exclude<TierId, 'none'>, string> = {
   gold: 'Золото',
@@ -635,6 +636,15 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   useEffect(() => {
     writeLocalJson('wcq-child-profile-id', selectedChildProfileId)
   }, [selectedChildProfileId])
+
+  useEffect(() => {
+    if (!childProfileModalMode) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [childProfileModalMode])
 
   useEffect(() => {
     writeLocalJson('wcq-chores', chores)
@@ -1731,7 +1741,6 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                       childProfiles={parentChildProfiles}
                       isFirstProfile={parentChildProfiles.length === 0}
                       mode={childProfileModalMode}
-                      onClose={() => setChildProfileModalMode(null)}
                       onCopyLink={copyChildCabinetLink}
                       onSave={saveChildProfile}
                       onSelectProfile={setSelectedChildProfileId}
@@ -2356,7 +2365,6 @@ function ChildProfileManager({
   childProfiles,
   isFirstProfile,
   mode,
-  onClose,
   onCopyLink,
   onSave,
   onSelectProfile,
@@ -2366,7 +2374,6 @@ function ChildProfileManager({
   childProfiles: ChildProfile[]
   isFirstProfile: boolean
   mode: 'create' | 'edit'
-  onClose: () => void
   onCopyLink: () => void
   onSave: (patch: Partial<ChildProfile> & { create?: boolean }) => Promise<boolean>
   onSelectProfile: (id: string) => void
@@ -2380,7 +2387,10 @@ function ChildProfileManager({
   const [goalTarget, setGoalTarget] = useState(childProfile?.currentGoal?.starsTarget || 30)
   const [regularTasks, setRegularTasks] = useState<NonNullable<ChildProfile['regularTasks']>>(childProfile?.regularTasks || [])
   const [lootboxRewards, setLootboxRewards] = useState<string[]>(childProfile?.lootboxRewards?.length ? childProfile.lootboxRewards : defaultLootboxRewards)
+  const [otherLootboxText, setOtherLootboxText] = useState('')
+  const [customLootboxRewards, setCustomLootboxRewards] = useState<string[]>([])
   const [parentPin, setParentPin] = useState('')
+  const [saveNotice, setSaveNotice] = useState(false)
 
   useEffect(() => {
     setProfileName(childProfile?.name || '')
@@ -2390,7 +2400,16 @@ function ChildProfileManager({
     setGoalLabel(childProfile?.currentGoal?.label || '')
     setGoalTarget(childProfile?.currentGoal?.starsTarget || 30)
     setRegularTasks(childProfile?.regularTasks || [])
-    setLootboxRewards(childProfile?.lootboxRewards?.length ? childProfile.lootboxRewards : defaultLootboxRewards)
+    const savedLootboxRewards = childProfile?.lootboxRewards?.length ? childProfile.lootboxRewards : defaultLootboxRewards
+    const standardRewards = savedLootboxRewards.filter((reward) => standardLootboxRewardValues.has(reward))
+    const otherReward = savedLootboxRewards.find((reward) => reward.startsWith('Другое:'))
+    setLootboxRewards([
+      ...standardRewards,
+      ...(otherReward ? ['other'] : []),
+    ])
+    setOtherLootboxText(otherReward ? otherReward.replace(/^Другое:\s*/, '') : '')
+    setCustomLootboxRewards(savedLootboxRewards.filter((reward) => !standardLootboxRewardValues.has(reward) && !reward.startsWith('Другое:')))
+    setSaveNotice(false)
   }, [childProfile])
 
   const saveProfileSettings = async () => {
@@ -2414,7 +2433,15 @@ function ChildProfileManager({
       window.alert('В регулярных заданиях удалите пустые строки или заполните название.')
       return
     }
-    if (lootboxRewards.length === 1) {
+    const cleanCustomLootboxRewards = customLootboxRewards.map((reward) => reward.trim()).filter(Boolean)
+    const cleanLootboxRewards = lootboxRewards.length
+      ? [
+          ...lootboxRewards.filter((reward) => reward !== 'other'),
+          ...(lootboxRewards.includes('other') && otherLootboxText.trim() ? [`Другое: ${otherLootboxText.trim()}`] : []),
+          ...cleanCustomLootboxRewards,
+        ]
+      : []
+    if (cleanLootboxRewards.length === 1) {
       window.alert('Для лутбоксов выберите минимум 2 варианта или выключите их полностью.')
       return
     }
@@ -2425,7 +2452,7 @@ function ChildProfileManager({
       rewards: filledRewards,
       ageGroup,
       regularTasks: cleanRegularTasks,
-      lootboxRewards,
+      lootboxRewards: cleanLootboxRewards,
     }
     if (goalLabel.trim() && goalTarget > 0) {
       patch.currentGoal = { label: goalLabel.trim(), starsTarget: goalTarget }
@@ -2434,7 +2461,10 @@ function ChildProfileManager({
       writeLocalJson('wcq-parent-pin-created', true)
     }
     const saved = await onSave(patch)
-    if (saved) onClose()
+    if (saved) {
+      setSaveNotice(true)
+      window.setTimeout(() => setSaveNotice(false), 2200)
+    }
   }
 
   const updateRegularTask = (index: number, patch: Partial<NonNullable<ChildProfile['regularTasks']>[number]>) => {
@@ -2445,6 +2475,10 @@ function ChildProfileManager({
     setLootboxRewards((current) =>
       current.includes(value) ? current.filter((reward) => reward !== value) : [...current, value],
     )
+  }
+
+  const addCustomLootboxReward = () => {
+    setCustomLootboxRewards((current) => [...current, ''])
   }
 
   return (
@@ -2671,33 +2705,73 @@ function ChildProfileManager({
         </button>
       </section>
 
-      <section className="child-profile-section">
-        <h3>Содержимое лутбоксов</h3>
-        <label className="pixel-check lootbox-master-check">
-          <input
-            checked={lootboxRewards.length > 0}
-            type="checkbox"
-            onChange={(event) => setLootboxRewards(event.target.checked ? defaultLootboxRewards : [])}
-          />
-          <span className="pixel-check-box" aria-hidden>{lootboxRewards.length > 0 ? '✓' : ''}</span>
-          <span>Лутбоксы включены</span>
-        </label>
+      <section className="child-profile-section lootbox-profile-section">
+        <div className="section-heading-row">
+          <h3>Содержимое лутбоксов</h3>
+          <label className="pixel-check lootbox-master-check">
+            <input
+              checked={lootboxRewards.length > 0}
+              type="checkbox"
+              onChange={(event) => setLootboxRewards(event.target.checked ? defaultLootboxRewards : [])}
+            />
+            <span className="pixel-check-box" aria-hidden>{lootboxRewards.length > 0 ? '✓' : ''}</span>
+            <span>Лутбоксы включены</span>
+          </label>
+        </div>
         {lootboxRewards.length > 0 && (
-          <div className="lootbox-options-grid">
-            {lootboxRewardOptions.map((option) => (
-              <label className="pixel-check" key={option.value}>
+          <div className="lootbox-editor">
+            <div className="lootbox-options-grid">
+              {lootboxRewardOptions.map((option) => (
+                <label className="pixel-check" key={option.value}>
+                  <input
+                    checked={lootboxRewards.includes(option.value)}
+                    type="checkbox"
+                    onChange={() => toggleLootboxReward(option.value)}
+                  />
+                  <span className="pixel-check-box" aria-hidden>{lootboxRewards.includes(option.value) ? '✓' : ''}</span>
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+            {lootboxRewards.includes('other') && (
+              <label className="lootbox-custom-row">
+                Что именно выпадет в «Другое»
                 <input
-                  checked={lootboxRewards.includes(option.value)}
-                  type="checkbox"
-                  onChange={() => toggleLootboxReward(option.value)}
+                  placeholder="Например: выбрать десерт / 30 минут игры"
+                  value={otherLootboxText}
+                  onChange={(event) => setOtherLootboxText(event.target.value)}
                 />
-                <span className="pixel-check-box" aria-hidden>{lootboxRewards.includes(option.value) ? '✓' : ''}</span>
-                <span>{option.label}</span>
+              </label>
+            )}
+            {customLootboxRewards.map((reward, index) => (
+              <label className="lootbox-custom-row" key={`custom-lootbox-${index}`}>
+                Свой вариант #{index + 1}
+                <span className="lootbox-custom-input-row">
+                  <input
+                    placeholder="Например: билет в кино"
+                    value={reward}
+                    onChange={(event) =>
+                      setCustomLootboxRewards((current) =>
+                        current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)),
+                      )
+                    }
+                  />
+                  <button
+                    className="tiny-button danger"
+                    type="button"
+                    onClick={() => setCustomLootboxRewards((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                  >
+                    Убрать
+                  </button>
+                </span>
               </label>
             ))}
+            <button className="tiny-button lootbox-add-custom" type="button" onClick={addCustomLootboxReward}>
+              + добавить свой вариант
+            </button>
           </div>
         )}
-        <small className="hint">При включении автоматически выбираются опыт, звезда и зелье. Можно добавить ещё варианты.</small>
+        <small className="hint lootbox-note">При включении автоматически выбираются опыт, звезда и зелье. Можно отметить «Другое» или добавить несколько своих вариантов.</small>
       </section>
       {childProfile && childProfile.pendingRegulars && childProfile.pendingRegulars.length > 0 && (
         <section className="child-profile-section">
@@ -2720,6 +2794,12 @@ function ChildProfileManager({
           Баланс: {childProfile.starBalance} <StarSprite small /> · Кабинет: /child/{childProfile.id}
         </p>
       )}
+      <div className="child-profile-save-footer">
+        <button className="pixel-button start wide" type="button" onClick={saveProfileSettings}>
+          Сохранить
+        </button>
+      </div>
+      {saveNotice && <div className="save-toast">Сохранено</div>}
     </div>
   )
 }

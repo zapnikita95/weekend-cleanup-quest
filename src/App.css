@@ -712,22 +712,28 @@ label {
   place-items: center;
   padding: 28px;
   background: rgba(13, 8, 32, 0.72);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .child-profile-modal {
+  position: relative;
   width: min(1080px, calc(100vw - 40px));
   max-height: calc(100vh - 48px);
   overflow: auto;
-  padding: 22px;
+  overscroll-behavior: contain;
+  padding: 22px 28px 22px 22px;
+  scrollbar-gutter: stable;
 }
 
 .modal-close-button {
   position: sticky;
   top: 0;
-  left: 100%;
   z-index: 2;
+  display: block;
   width: 36px;
   height: 36px;
+  margin: 0 10px 8px auto;
   border: 3px solid var(--ink);
   background: var(--pink);
   color: var(--ink);
@@ -837,8 +843,28 @@ label {
 
 .lootbox-options-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.lootbox-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.section-heading-row h3 {
+  margin: 0;
+}
+
+.lootbox-profile-section .lootbox-master-check {
+  flex: 0 0 auto;
 }
 
 .pixel-check {
@@ -854,6 +880,11 @@ label {
   font-size: 13px;
   font-weight: 900;
   box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.2);
+}
+
+.lootbox-options-grid .pixel-check {
+  width: 100%;
+  min-height: 48px;
 }
 
 .pixel-check input {
@@ -883,6 +914,55 @@ label {
 .pixel-check:has(input:checked) .pixel-check-box,
 .photo-proof-toggle.is-on .pixel-check-box {
   background: var(--aqua);
+}
+
+.lootbox-custom-row {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.lootbox-custom-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.lootbox-add-custom {
+  width: 100%;
+}
+
+.lootbox-note {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 2px dashed rgba(31, 24, 61, 0.25);
+  background: rgba(102, 227, 255, 0.12);
+  padding: 8px;
+}
+
+.child-profile-save-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin: 6px -6px -6px;
+  border-top: 3px solid var(--ink);
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.96), rgba(255, 245, 200, 0.96));
+  padding: 12px 6px 6px;
+}
+
+.save-toast {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 200;
+  border: 3px solid var(--ink);
+  background: var(--grass);
+  color: var(--ink);
+  font-weight: 900;
+  padding: 12px 18px;
+  text-transform: uppercase;
+  box-shadow: 5px 5px 0 var(--ink);
 }
 
 .photo-proof-toggle {
