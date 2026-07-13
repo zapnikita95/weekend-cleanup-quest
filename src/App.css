@@ -1021,10 +1021,16 @@ label {
 
 .child-cabinet-shell {
   max-width: 980px;
+  display: grid;
+  gap: 14px;
 }
 
 .child-cabinet-header {
-  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
 }
 
 .child-cabinet-hero {
@@ -1034,7 +1040,160 @@ label {
 }
 
 .child-cabinet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.avatar-upgrade-panel {
+  display: grid;
+  gap: 10px;
+  border: 3px solid var(--ink);
+  background: rgba(102, 227, 255, 0.12);
+  padding: 12px;
+}
+
+.avatar-upgrade-panel h3 {
+  margin: 0;
+}
+
+.cosmetic-select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.cosmetic-select-grid label {
+  font-size: 12px;
+}
+
+.child-goal-card,
+.child-xp-card,
+.child-active-game-card,
+.regular-task-board,
+.child-lootbox-card,
+.child-achievements-panel,
+.child-log-panel,
+.child-cabinet-grid > .pixel-panel {
+  padding: 18px;
+}
+
+.child-goal-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.child-goal-card h2,
+.child-active-game-card h2,
+.child-lootbox-card h2 {
+  margin-bottom: 0;
+}
+
+.goal-progress-copy {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.goal-progress-copy strong {
+  font-size: 24px;
+}
+
+.child-goal-card .progress-track,
+.child-xp-card .progress-track {
+  grid-column: 1 / -1;
+}
+
+.child-xp-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.child-task-zone {
+  display: grid;
   grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.child-task-zone.has-active {
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  align-items: stretch;
+}
+
+.child-active-game-card {
+  display: grid;
+  align-content: space-between;
+  gap: 18px;
+}
+
+.child-active-game-card .pixel-button,
+.child-lootbox-card .pixel-button {
+  justify-self: start;
+}
+
+.regular-task-board {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  background:
+    linear-gradient(rgba(31, 24, 61, 0.06) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(31, 24, 61, 0.06) 2px, transparent 2px),
+    linear-gradient(135deg, rgba(255, 250, 240, 0.96), rgba(255, 236, 174, 0.9));
+  background-size: 18px 18px, 18px 18px, auto;
+}
+
+.board-pin {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  border: 3px solid var(--ink);
+  background: var(--pink);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.regular-task-list {
+  display: grid;
+  gap: 10px;
+}
+
+.regular-task-ticket {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px;
+}
+
+.regular-task-ticket span {
+  font-weight: 900;
+}
+
+.regular-task-ticket small {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.child-lootbox-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.child-lootbox-card > img {
+  width: 88px;
+  height: 88px;
+  image-rendering: pixelated;
+  filter: drop-shadow(4px 4px 0 rgba(31, 24, 61, 0.35));
 }
 
 .achievement-grid {
@@ -1045,12 +1204,12 @@ label {
 
 .achievement-card {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   justify-items: center;
   text-align: center;
   border: 3px solid var(--ink);
   background: rgba(255, 255, 255, 0.55);
-  padding: 12px;
+  padding: 14px;
   opacity: 0.72;
 }
 
@@ -1058,6 +1217,45 @@ label {
   opacity: 1;
   background: rgba(255, 217, 90, 0.42);
   box-shadow: 4px 4px 0 var(--ink);
+}
+
+.achievement-badge {
+  display: grid;
+  width: 70px;
+  height: 70px;
+  place-items: center;
+  border: 4px solid var(--ink);
+  background: linear-gradient(135deg, #d8d3c8, #fffaf0);
+  box-shadow: 4px 4px 0 rgba(31, 24, 61, 0.35);
+}
+
+.achievement-badge.unlocked {
+  background: linear-gradient(135deg, var(--sun), #fff4bd);
+}
+
+.achievement-badge-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.achievement-badge .room-icon {
+  width: 42px;
+  height: 42px;
+}
+
+.achievement-ribbon {
+  position: absolute;
+  right: -13px;
+  bottom: -13px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 3px solid var(--ink);
+  background: var(--pink);
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .skill-tree {
@@ -1085,6 +1283,34 @@ label {
 .skill-card .progress-fill {
   height: 100%;
   background: #4a90e2;
+}
+
+.child-log-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+}
+
+.child-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.child-log-header h2 {
+  margin-bottom: 0;
+}
+
+.child-log-tabs,
+.child-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.child-log-actions {
+  justify-content: flex-end;
 }
 
 /* Avatar with cosmetics layering */
@@ -2577,8 +2803,33 @@ label {
   .child-reward-row,
   .goal-editor,
   .regular-task-row,
-  .teen-toggle {
+  .teen-toggle,
+  .child-cabinet-header,
+  .child-task-zone.has-active,
+  .child-cabinet-grid,
+  .child-goal-card,
+  .child-xp-card,
+  .child-lootbox-card {
     grid-template-columns: 1fr;
+  }
+
+  .child-log-header,
+  .child-cabinet-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .goal-progress-copy {
+    justify-items: start;
+  }
+
+  .regular-task-ticket {
+    grid-template-columns: 1fr;
+  }
+
+  .child-lootbox-card > img {
+    width: 112px;
+    height: 112px;
   }
 
   .teen-toggle .hint {

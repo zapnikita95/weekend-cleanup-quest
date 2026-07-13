@@ -199,6 +199,20 @@ const lootboxRewardOptions = [
   { value: 'other', label: 'Другое' },
 ]
 const standardLootboxRewardValues = new Set(lootboxRewardOptions.map((option) => option.value))
+const cosmeticSlotLabels: Record<string, string> = {
+  hat: 'Голова',
+  cloak: 'Плащ',
+  staff: 'Посох',
+  pet: 'Питомец',
+  potion: 'Зелье',
+}
+const cosmeticItemLabels: Record<string, string> = {
+  'hat-crown': 'Корона',
+  cloak: 'Плащ героя',
+  staff: 'Магический посох',
+  'pet-slime': 'Зелёный питомец',
+  potion: 'Зелье',
+}
 
 const tierLabels: Record<Exclude<TierId, 'none'>, string> = {
   gold: 'Золото',
@@ -2281,6 +2295,23 @@ function RoomIcon({ icon, label = '' }: { icon: string; label?: string }) {
   )
 }
 
+function AchievementBadge({
+  achievement,
+  unlocked,
+}: {
+  achievement: (typeof CATEGORY_ACHIEVEMENTS)[number]
+  unlocked: boolean
+}) {
+  return (
+    <div className={unlocked ? 'achievement-badge unlocked' : 'achievement-badge'}>
+      <div className="achievement-badge-frame">
+        <RoomIcon icon={achievement.icon} label={achievement.title} />
+        <span className="achievement-ribbon" aria-hidden>★</span>
+      </div>
+    </div>
+  )
+}
+
 function StarSprite({ small = false }: { small?: boolean }) {
   return <img alt="" className={small ? 'star-sprite small' : 'star-sprite'} src="/sprites/star.svg" />
 }
@@ -2809,6 +2840,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const [games, setGames] = useState<GameRecord[]>([])
   const [status, setStatus] = useState('Загружаю кабинет...')
   const [activeGameId, setActiveGameId] = useState('')
+  const [cabinetPanel, setCabinetPanel] = useState<'rewards' | 'history' | 'stars'>('history')
 
   const loadProfile = useCallback(async () => {
     try {
@@ -2872,11 +2904,15 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const goal = profile.currentGoal
   const goalProgress = goal ? Math.min(100, Math.floor(((profile.starBalance || 0) / goal.starsTarget) * 100)) : 0
   const activeGameLink = activeGameId ? `/player/${activeGameId}/0` : ''
+  const xpCurrent = profile.xp || 0
+  const xpNext = xpForNextLevel(xpCurrent)
+  const availableRewards = profile.rewards.filter((reward) => reward.label.trim())
+  const equippedCosmetics = profile.equippedCosmetics || {}
 
   return (
     <main className="game-shell child-cabinet-shell">
       {status && <p className="app-toast">{status}</p>}
-      <header className="topbar pixel-panel child-cabinet-header">
+      <header className="pixel-panel child-cabinet-header">
         <div className="child-cabinet-hero">
           <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} cosmetics={profile.equippedCosmetics || {}} />
           <div>
@@ -2886,97 +2922,108 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
               <StarSprite />
               <strong>{profile.starBalance}</strong>
               <span>звёзд</span>
-              {profile.moneyRate ? <span style={{marginLeft:8, fontSize:'0.8em'}}>· ~{Math.floor((profile.starBalance||0) * (profile.moneyRate||15))}₽ экв.</span> : null}
             </div>
           </div>
         </div>
-      </header>
-
-      {activeGameLink && (
-        <article className="pixel-panel child-active-game-card">
-          <div>
-            <p className="eyebrow">Активный квест</p>
-            <h2>Можно продолжить уборку</h2>
-            <p className="hint">Нажми кнопку, откроется твой список дел. Никакие настройки там не нужны.</p>
-          </div>
-          <button className="pixel-button start" type="button" onClick={() => window.location.assign(activeGameLink)}>
-            Перейти к игре
-          </button>
-        </article>
-      )}
-
-      {/* XP and Avatar Progression */}
-      <div className="pixel-panel" style={{marginBottom: 12}}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-          <strong>Опыт: {profile.xp || 0} / {xpForNextLevel(profile.xp || 0) + (profile.xp || 0)} (Ур. {getLevelFromXp(profile.xp || 0)})</strong>
-          <small>До след. уровня: {xpForNextLevel(profile.xp || 0)} XP</small>
-        </div>
-        <div className="progress-track" style={{marginTop:4}}><div className="progress-fill" style={{width: `${Math.min(100, ((profile.xp||0) % 50) * 2)}%`, background:'#4CAF50'}} /></div>
-      </div>
-
-      {/* Avatar Customization */}
-      <div className="pixel-panel" style={{marginBottom:12}}>
-        <h3>Персонаж — прокачка аватара</h3>
-        <div style={{display:'flex', gap:16, alignItems:'flex-start'}}>
-          <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} cosmetics={profile.equippedCosmetics || {}} />
-          <div style={{flex:1}}>
-            <p className="hint">Разблокируй предметы по уровням. Экипируй чтобы визуально прокачивать персонажа!</p>
+        <div className="avatar-upgrade-panel">
+          <h3>Прокачка аватара</h3>
+          <p className="hint">Предметы открываются по уровням. Выбери, что надеть на персонажа.</p>
+          <div className="cosmetic-select-grid">
             {['hat','cloak','staff','pet','potion'].map(slot => {
-              const current = (profile.equippedCosmetics || {})[slot]
-              const unlocked = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot))
-              if (!unlocked.length) return null
+              const current = equippedCosmetics[slot]
+              const unlockedItems = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot))
+              if (!unlockedItems.length) return null
               return (
-                <div key={slot} style={{marginBottom:6}}>
-                  <strong>{slot}:</strong>
+                <label key={slot}>
+                  {cosmeticSlotLabels[slot] || slot}
                   <select value={current || ''} onChange={e => {
                     const val = e.target.value || undefined
                     const next = {...(profile.equippedCosmetics || {})}
                     if (val) next[slot] = val
                     else delete next[slot]
-                    // local update + save
-                    const newProfile = {...profile, equippedCosmetics: next}
-                    setProfile(newProfile as any)
-                    // save to server
+                    setProfile({...profile, equippedCosmetics: next} as any)
                     api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({equippedCosmetics: next})}).catch(()=>{})
                   }}>
                     <option value="">— нет —</option>
-                    {unlocked.map(item => <option key={item} value={item}>{item}</option>)}
+                    {unlockedItems.map(item => <option key={item} value={item}>{cosmeticItemLabels[item] || item}</option>)}
                   </select>
-                </div>
+                </label>
               )
             })}
-            <small>Уровни открывают новые предметы (корона, плащ, посох, питомец, зелье)</small>
           </div>
+          {!profile.unlockedCosmetics?.length && <p className="hint">Первый предмет откроется на 2 уровне.</p>}
         </div>
-      </div>
+      </header>
 
-      {/* Regular Tasks - child can complete for XP/stars */}
-      <div className="pixel-panel" style={{marginBottom:12}}>
-        <h3>Регулярные дела (можно выполнять каждый день)</h3>
-        <p className="hint">Отметь выполненное — получишь опыт и звёзды (родитель увидит в отчёте).</p>
-        {(profile.regularTasks || []).map((task: any) => (
-          <div key={task.id} className="history-row" style={{display:'flex', justifyContent:'space-between'}}>
-            <span>{task.label} (+{task.xp} XP, +{task.stars}★)</span>
-            <button className="tiny-button" onClick={async () => {
-              const pending = [...(profile.pendingRegulars || []), { ...task, doneAt: new Date().toISOString() }]
-              const newProfile = {...profile, pendingRegulars: pending}
-              setProfile(newProfile as any)
-              try {
-                await api(`/api/child-profiles/${profileId}`, {
-                  method: 'POST',
-                  body: JSON.stringify({ pendingRegulars: pending })
-                })
-                setStatus(`Отмечено "${task.label}" — ждет подтверждения родителя`)
-              } catch { setStatus('Отмечено локально') }
-            }}>Отметить (ждет подтверждения)</button>
+      <article className="pixel-panel child-goal-card">
+        <div>
+          <p className="eyebrow">Цель</p>
+          <h2>{goal?.label || 'Цель пока не выбрана'}</h2>
+        </div>
+        <div className="goal-progress-copy">
+          <strong>{goal ? `${profile.starBalance} / ${goal.starsTarget}` : `${profile.starBalance} звёзд`}</strong>
+          {goal && <span>{goalProgress}%</span>}
+        </div>
+        {goal && <div className="progress-track"><div className="progress-fill" style={{width: `${goalProgress}%`}} /></div>}
+      </article>
+
+      <article className="pixel-panel child-xp-card">
+        <div>
+          <p className="eyebrow">Опыт</p>
+          <strong>{xpCurrent} / {xpCurrent + xpNext} XP · Ур. {getLevelFromXp(xpCurrent)}</strong>
+        </div>
+        <small>До следующего уровня: {xpNext} XP</small>
+        <div className="progress-track"><div className="progress-fill" style={{width: `${Math.min(100, (xpCurrent % 50) * 2)}%`}} /></div>
+      </article>
+
+      <section className={activeGameLink ? 'child-task-zone has-active' : 'child-task-zone'}>
+        {activeGameLink && (
+          <article className="pixel-panel child-active-game-card">
+            <div>
+              <p className="eyebrow">Активный квест</p>
+              <h2>Можно продолжить уборку</h2>
+              <p className="hint">Нажми кнопку, откроется твой список дел. Никакие настройки там не нужны.</p>
+            </div>
+            <button className="pixel-button start" type="button" onClick={() => window.location.assign(activeGameLink)}>
+              Перейти к игре
+            </button>
+          </article>
+        )}
+
+        <article className="pixel-panel regular-task-board">
+          <div className="board-pin" aria-hidden />
+          <h2>Доска регулярных дел</h2>
+          <p className="hint">Отметь выполненное — получишь опыт и звёзды. Родитель увидит заявку.</p>
+          <div className="regular-task-list">
+            {(profile.regularTasks || []).map((task: any) => (
+              <div key={task.id} className="regular-task-ticket">
+                <span>{task.label}</span>
+                <small>+{task.xp} XP · +{task.stars}★</small>
+                <button className="tiny-button" onClick={async () => {
+                  const pending = [...(profile.pendingRegulars || []), { ...task, doneAt: new Date().toISOString() }]
+                  setProfile({...profile, pendingRegulars: pending} as any)
+                  try {
+                    await api(`/api/child-profiles/${profileId}`, {
+                      method: 'POST',
+                      body: JSON.stringify({ pendingRegulars: pending })
+                    })
+                    setStatus(`Отмечено "${task.label}" — ждёт подтверждения родителя`)
+                  } catch { setStatus('Отмечено локально') }
+                }}>Выполнить</button>
+              </div>
+            ))}
+            {!(profile.regularTasks || []).length && <p className="hint">Регулярные дела появятся после настройки родителем.</p>}
           </div>
-        ))}
-      </div>
+        </article>
+      </section>
 
-      {/* Lootbox */}
-      <div className="pixel-panel" style={{marginBottom:12}}>
-        <h3>Лутбокс <img src="/avatars/lootbox.svg" alt="сундук" style={{width:24, verticalAlign:'middle'}} /></h3>
-        <p className="hint">Выполни несколько регулярных за неделю или набери очки в игре — получи лутбокс!</p>
+      <article className="pixel-panel child-lootbox-card">
+        <img src="/avatars/lootbox.svg" alt="" />
+        <div>
+          <p className="eyebrow">Лутбокс</p>
+          <h2>Сундук с бонусом</h2>
+          <p className="hint">Выполни регулярные дела или набери очки в квесте — открой сундук.</p>
+        </div>
         <button className="pixel-button" onClick={async () => {
           const rewards = profile.lootboxRewards || ['+20xp', '+1 звезда', 'potion']
           const pick = rewards[Math.floor(Math.random()*rewards.length)]
@@ -2996,47 +3043,9 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           await api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({xp: newXp, starBalance: newStars})}).catch(()=>{})
           setStatus(msg)
         }}>Открыть лутбокс</button>
-      </div>
-
-      {goal && (
-        <div className="pixel-panel goal-bar">
-          <div style={{display:'flex', justifyContent:'space-between'}}>
-            <strong>Цель: {goal.label}</strong>
-            <span>{profile.starBalance} / {goal.starsTarget} ({goalProgress}%)</span>
-          </div>
-          <div className="progress-track"><div className="progress-fill" style={{width: `${goalProgress}%`}} /></div>
-        </div>
-      )}
+      </article>
 
       <section className="setup-grid child-cabinet-grid">
-        <article className="pixel-panel">
-          <h2>Награды {profile.ageGroup === 'teen' ? '(самостоятельность)' : ''}</h2>
-          <div className="history-list">
-            {profile.rewards.map((reward) => {
-              const canRedeem = !reward.redeemedAt && profile.starBalance >= reward.starsRequired
-              const cat = (reward as any).category
-              return (
-                <div className="history-row history-row-actions" key={reward.id}>
-                  <div className="history-row-body">
-                    <strong>
-                      {reward.starsRequired} <StarSprite small /> — {reward.label || 'Награда'}
-                      {cat ? <small style={{opacity:0.7}}> [{cat}]</small> : null}
-                    </strong>
-                    <span>{reward.redeemedAt ? `Получено ${formatDate(reward.redeemedAt)}` : canRedeem ? 'Можно забрать!' : `Ещё ${reward.starsRequired - profile.starBalance} звёзд`}</span>
-                  </div>
-                  {canRedeem && (
-                    <button className="tiny-button" type="button" onClick={() => redeemReward(reward.id)}>
-                      Забрать
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          {nextReward && <p className="hint">Ближайшая цель: {nextReward.label}</p>}
-          {profile.moneyRate && <p className="hint">Курс: ~{profile.moneyRate} ₽ за звезду (для справки родителям)</p>}
-        </article>
-
         {profile.ageGroup === 'teen' && (
           <article className="pixel-panel">
             <h2>Твоя автономия</h2>
@@ -3054,12 +3063,12 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           </article>
         )}
 
-        <article className="pixel-panel">
+        <article className="pixel-panel child-achievements-panel">
           <h2>Достижения</h2>
           <div className="achievement-grid">
             {CATEGORY_ACHIEVEMENTS.map((achievement) => (
               <div className={`achievement-card ${unlocked.has(achievement.id) ? 'unlocked' : ''}`} key={achievement.id}>
-                <RoomIcon icon={achievement.icon} label={achievement.title} />
+                <AchievementBadge achievement={achievement} unlocked={unlocked.has(achievement.id)} />
                 <strong>{achievement.title}</strong>
                 <span>{unlocked.has(achievement.id) ? 'Открыто!' : `${profile.categoryCounts[achievement.icon] || 0}/${achievement.threshold} дел`}</span>
               </div>
@@ -3090,52 +3099,70 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           <p className="hint">Каждый уровень навыка = +2 звезды в будущем. Качай своего титана уборки!</p>
         </article>
 
-        <article className="pixel-panel">
-          <h2>История квестов 
-            <button className="tiny-button" style={{float:'right', marginLeft:4}} onClick={() => {
-              const text = games.slice(0,10).map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')} — ${g.childOutcome?.starsEarned||0}★`).join('\n');
-              navigator.clipboard?.writeText(`Отчёт ${profile.name}: ${profile.starBalance}★ всего\n${text}`).then(()=>setStatus('Отчёт скопирован'));
-            }}>Копировать</button>
-            <button className="tiny-button" style={{float:'right'}} onClick={() => {
-              const csv = ['Дата,Монеты,Звёзды,Приз'].concat(games.map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')},${g.childOutcome?.coins||0},${g.childOutcome?.starsEarned||0},"${g.childOutcome?.prizeLabel||''}"`)).join('\n');
-              const blob = new Blob([csv], {type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`report-${profile.name}.csv`; a.click(); URL.revokeObjectURL(url);
-            }}>CSV</button>
-          </h2>
-          <div className="history-list">
-            {games.map((game) => (
-              <div className="history-row" key={game.id}>
-                <div className="history-row-body">
-                  <strong>
-                    {game.childOutcome?.coins ?? game.scores[0]?.total ?? 0} монет · {game.childOutcome?.starsEarned || 0} <StarSprite small />
-                  </strong>
-                  <span>
-                    {formatDate(game.finishedAt)} · {game.childOutcome?.prizeLabel || game.prize || 'Квест'}
-                  </span>
-                </div>
-              </div>
-            ))}
-            {!games.length && <p className="hint">Пока нет сохранённых квестов.</p>}
+        <article className="pixel-panel child-log-panel">
+          <div className="child-log-header">
+            <h2>Прогресс и история</h2>
+            <div className="child-log-tabs">
+              {availableRewards.length > 0 && <button className={cabinetPanel === 'rewards' ? 'section-tab active' : 'section-tab'} type="button" onClick={() => setCabinetPanel('rewards')}>Награды</button>}
+              <button className={cabinetPanel === 'history' ? 'section-tab active' : 'section-tab'} type="button" onClick={() => setCabinetPanel('history')}>История квестов</button>
+              <button className={cabinetPanel === 'stars' ? 'section-tab active' : 'section-tab'} type="button" onClick={() => setCabinetPanel('stars')}>Журнал звёзд</button>
+            </div>
           </div>
-        </article>
-
-        <article className="pixel-panel">
-          <h2>Журнал звёзд</h2>
-          <div className="history-list">
-            {profile.ledger.slice().reverse().map((entry) => (
-              <div className="history-row" key={entry.id}>
-                <div className="history-row-body">
-                  <strong>
-                    {entry.stars > 0 ? '+' : ''}
-                    {entry.stars} <StarSprite small />
-                  </strong>
-                  <span>
-                    {formatDate(entry.createdAt)} · {entry.note}
-                  </span>
-                </div>
+          {cabinetPanel === 'rewards' && availableRewards.length > 0 && (
+            <div className="history-list">
+              {availableRewards.map((reward) => {
+                const canRedeem = !reward.redeemedAt && profile.starBalance >= reward.starsRequired
+                return (
+                  <div className="history-row history-row-actions" key={reward.id}>
+                    <div className="history-row-body">
+                      <strong>{reward.starsRequired} <StarSprite small /> — {reward.label}</strong>
+                      <span>{reward.redeemedAt ? `Получено ${formatDate(reward.redeemedAt)}` : canRedeem ? 'Можно забрать!' : `Ещё ${reward.starsRequired - profile.starBalance} звёзд`}</span>
+                    </div>
+                    {canRedeem && <button className="tiny-button" type="button" onClick={() => redeemReward(reward.id)}>Забрать</button>}
+                  </div>
+                )
+              })}
+              {nextReward && <p className="hint">Ближайшая цель: {nextReward.label}</p>}
+            </div>
+          )}
+          {cabinetPanel === 'history' && (
+            <>
+              <div className="child-log-actions">
+                <button className="tiny-button" onClick={() => {
+                  const text = games.slice(0,10).map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')} — ${g.childOutcome?.starsEarned||0}★`).join('\n')
+                  navigator.clipboard?.writeText(`Отчёт ${profile.name}: ${profile.starBalance}★ всего\n${text}`).then(()=>setStatus('Отчёт скопирован'))
+                }}>Копировать</button>
+                <button className="tiny-button" onClick={() => {
+                  const csv = ['Дата,Монеты,Звёзды,Приз'].concat(games.map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')},${g.childOutcome?.coins||0},${g.childOutcome?.starsEarned||0},"${g.childOutcome?.prizeLabel||''}"`)).join('\n')
+                  const blob = new Blob([csv], {type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`report-${profile.name}.csv`; a.click(); URL.revokeObjectURL(url)
+                }}>CSV</button>
               </div>
-            ))}
-            {!profile.ledger.length && <p className="hint">Звёзды появятся после сохранённых квестов.</p>}
-          </div>
+              <div className="history-list">
+                {games.map((game) => (
+                  <div className="history-row" key={game.id}>
+                    <div className="history-row-body">
+                      <strong>{game.childOutcome?.coins ?? game.scores[0]?.total ?? 0} монет · {game.childOutcome?.starsEarned || 0} <StarSprite small /></strong>
+                      <span>{formatDate(game.finishedAt)} · {game.childOutcome?.prizeLabel || game.prize || 'Квест'}</span>
+                    </div>
+                  </div>
+                ))}
+                {!games.length && <p className="hint">Пока нет сохранённых квестов.</p>}
+              </div>
+            </>
+          )}
+          {cabinetPanel === 'stars' && (
+            <div className="history-list">
+              {profile.ledger.slice().reverse().map((entry) => (
+                <div className="history-row" key={entry.id}>
+                  <div className="history-row-body">
+                    <strong>{entry.stars > 0 ? '+' : ''}{entry.stars} <StarSprite small /></strong>
+                    <span>{formatDate(entry.createdAt)} · {entry.note}</span>
+                  </div>
+                </div>
+              ))}
+              {!profile.ledger.length && <p className="hint">Звёзды появятся после сохранённых квестов.</p>}
+            </div>
+          )}
         </article>
       </section>
     </main>
