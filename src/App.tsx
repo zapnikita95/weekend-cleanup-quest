@@ -201,6 +201,7 @@ const lootboxRewardOptions = [
 ]
 const standardLootboxRewardValues = new Set(lootboxRewardOptions.map((option) => option.value))
 const cosmeticSlotLabels: Record<string, string> = {
+  backdrop: 'Фон',
   hat: 'Голова',
   cloak: 'Плащ',
   staff: 'Посох',
@@ -208,6 +209,11 @@ const cosmeticSlotLabels: Record<string, string> = {
   potion: 'Зелье',
 }
 const cosmeticItemLabels: Record<string, string> = {
+  'backdrop-tropics': 'Тропики',
+  'backdrop-room': 'Комната',
+  'backdrop-space': 'Космос',
+  'backdrop-ocean': 'Подводный мир',
+  'backdrop-castle': 'Замок героя',
   'hat-crown': 'Корона',
   cloak: 'Плащ героя',
   staff: 'Магический посох',
@@ -216,10 +222,15 @@ const cosmeticItemLabels: Record<string, string> = {
 }
 const cosmeticUnlocks = [
   { item: 'hat-crown', minLevel: 2, slot: 'hat' },
+  { item: 'backdrop-tropics', minLevel: 2, slot: 'backdrop' },
   { item: 'cloak', minLevel: 3, slot: 'cloak' },
+  { item: 'backdrop-room', minLevel: 3, slot: 'backdrop' },
   { item: 'staff', minLevel: 4, slot: 'staff' },
+  { item: 'backdrop-space', minLevel: 4, slot: 'backdrop' },
   { item: 'pet-slime', minLevel: 5, slot: 'pet' },
+  { item: 'backdrop-ocean', minLevel: 5, slot: 'backdrop' },
   { item: 'potion', minLevel: 6, slot: 'potion' },
+  { item: 'backdrop-castle', minLevel: 6, slot: 'backdrop' },
 ]
 const progressionAvatarOptions = ['duck', 'fox', 'cat', 'frog', 'robot', 'wizard', 'dragon', 'ninja', 'queen', 'slime']
 
@@ -2945,7 +2956,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const claimedChoiceLevels = new Set(profile.cosmeticChoiceLevels || [])
   const pendingCosmeticLevel = cosmeticUnlocks.find(({ minLevel }) => xpLevel >= minLevel && !claimedChoiceLevels.has(minLevel))?.minLevel || 0
   const remainingCosmetics = cosmeticUnlocks
-    .filter(({ item }) => !(profile.unlockedCosmetics || []).includes(item))
+    .filter(({ item, minLevel }) => minLevel <= pendingCosmeticLevel && !(profile.unlockedCosmetics || []).includes(item))
     .map(({ item, slot }) => ({ item, slot }))
   const cosmeticChoiceKey = `${profile.id}:${pendingCosmeticLevel}:${(profile.unlockedCosmetics || []).join('|')}`
   const shouldOfferCosmetic = pendingCosmeticLevel > 0 && remainingCosmetics.length > 0
@@ -3018,7 +3029,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                   </label>
                 )}
                 <div className="cosmetic-select-grid compact">
-                  {['hat','cloak','staff','pet','potion'].map(slot => {
+                  {['backdrop','hat','cloak','staff','pet','potion'].map(slot => {
                     const current = equippedCosmetics[slot]
                     const unlockedItems = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot) || u === slot)
                     if (!unlockedItems.length) return null
@@ -3083,7 +3094,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
               {remainingCosmetics.map(({ item, slot }) => (
                 <button className="cosmetic-choice-card" key={item} type="button" onClick={() => chooseCosmetic(item, slot)}>
                   <span className={`cosmetic-choice-preview ${slot}`}>
-                    <img src={`/avatars/accessories/${item}.svg`} alt="" />
+                    <img src={slot === 'backdrop' ? `/avatars/backgrounds/${item}.svg` : `/avatars/accessories/${item}.svg`} alt="" />
                   </span>
                   <strong>{cosmeticItemLabels[item] || item}</strong>
                   <small>{cosmeticSlotLabels[slot] || slot}</small>
@@ -4100,16 +4111,18 @@ function ChildQuestHud({
 
 function PixelAvatar({ avatar, avatarUrl, small = false, cosmetics = {} }: { avatar: string; avatarUrl?: string; small?: boolean; cosmetics?: Record<string, string> }) {
   const baseSrc = avatarUrl || (spriteAvatarSet.has(avatar) ? `/avatars/${avatar}.svg` : null)
+  const backdrop = cosmetics.backdrop
 
   if (!baseSrc) {
     return <LegacyPixelAvatar avatar={avatar} small={small} />
   }
 
-  const accs = Object.entries(cosmetics || {}).filter(([_,v]) => v)
+  const accs = Object.entries(cosmetics || {}).filter(([slot, v]) => slot !== 'backdrop' && v)
 
   return (
     <div className={small ? 'avatar-container small' : 'avatar-container'} aria-hidden="true">
-      <img alt="avatar" src={baseSrc} />
+      {backdrop && <img className="accessory backdrop" alt="" src={`/avatars/backgrounds/${backdrop}.svg`} />}
+      <img className="base" alt="avatar" src={baseSrc} />
       {accs.map(([slot, item]) => {
         const src = `/avatars/accessories/${item}.svg`
         return <img key={slot} className={`accessory ${slot}`} alt={slot} src={src} />
