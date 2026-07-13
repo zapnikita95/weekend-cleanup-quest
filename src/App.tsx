@@ -4,9 +4,9 @@ import {
   CATEGORY_ACHIEVEMENTS,
   type ChildProfile,
   type ChildQuestOutcome,
-  computeLevel,
   computeSkillLevels,
   computeStreak,
+  computeCategoryCountsFromChores,
   defaultStarRules,
   filterGamesByMode,
   getAgeLabel,
@@ -15,6 +15,7 @@ import {
   getActiveSkillBuffs,
   getLevelFromXp,
   xpForNextLevel,
+  XP_THRESHOLDS,
   SKILL_TREE,
   starsForTier,
   type StarReward,
@@ -213,6 +214,14 @@ const cosmeticItemLabels: Record<string, string> = {
   'pet-slime': 'Зелёный питомец',
   potion: 'Зелье',
 }
+const cosmeticUnlocks = [
+  { item: 'hat-crown', minLevel: 2, slot: 'hat' },
+  { item: 'cloak', minLevel: 3, slot: 'cloak' },
+  { item: 'staff', minLevel: 4, slot: 'staff' },
+  { item: 'pet-slime', minLevel: 5, slot: 'pet' },
+  { item: 'potion', minLevel: 6, slot: 'potion' },
+]
+const progressionAvatarOptions = ['duck', 'fox', 'cat', 'frog', 'robot', 'wizard', 'dragon', 'ninja', 'queen', 'slime']
 
 const tierLabels: Record<Exclude<TierId, 'none'>, string> = {
   gold: 'Золото',
@@ -2305,7 +2314,9 @@ function AchievementBadge({
   return (
     <div className={unlocked ? 'achievement-badge unlocked' : 'achievement-badge'}>
       <div className="achievement-badge-frame">
-        <RoomIcon icon={achievement.icon} label={achievement.title} />
+        <svg className={`achievement-icon achievement-icon-${achievement.icon}`} role="img" aria-label={achievement.title}>
+          <use href={`/sprites/achievement-icons.svg#${achievement.icon}`} />
+        </svg>
         <span className="achievement-ribbon" aria-hidden>★</span>
       </div>
     </div>
@@ -2841,14 +2852,13 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const [status, setStatus] = useState('Загружаю кабинет...')
   const [activeGameId, setActiveGameId] = useState('')
   const [cabinetPanel, setCabinetPanel] = useState<'rewards' | 'history' | 'stars'>('history')
+  const [showCosmeticChoice, setShowCosmeticChoice] = useState(false)
+  const [dismissedCosmeticChoice, setDismissedCosmeticChoice] = useState('')
 
   const loadProfile = useCallback(async () => {
     try {
       const result = await api<{ profile: ChildProfile; games: GameRecord[] }>(`/api/child-profiles/${profileId}`)
       const prof = result.profile
-      const lvl = getLevelFromXp(prof.xp || 0)
-      const autoUnlocked = ['hat-crown', 'cloak', 'staff', 'pet-slime', 'potion'].filter((_,i) => i+2 <= lvl)
-      prof.unlockedCosmetics = Array.from(new Set([...(prof.unlockedCosmetics||[]), ...autoUnlocked]))
       setProfile(prof)
       setGames(result.games)
       setStatus('')
@@ -2875,6 +2885,16 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
     loadProfile()
   }, [loadProfile])
 
+  const saveProfilePatch = useCallback(async (patch: Partial<ChildProfile>) => {
+    setProfile((current) => current ? ({ ...current, ...patch } as ChildProfile) : current)
+    await api<{ profile: ChildProfile }>(`/api/child-profiles/${profileId}`, {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    }).catch(() => {
+      setStatus('Изменение сохранено локально. Сервер недоступен, обновите позже.')
+    })
+  }, [profileId])
+
   const redeemReward = async (rewardId: string) => {
     try {
       const result = await api<{ profile: ChildProfile }>(`/api/child-profiles/${profileId}/redeem`, {
@@ -2888,6 +2908,18 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
     }
   }
 
+  useEffect(() => {
+    if (!profile) return
+    const currentLevel = getLevelFromXp(profile.xp || 0)
+    const claimedLevels = new Set(profile.cosmeticChoiceLevels || [])
+    const pendingLevel = cosmeticUnlocks.find(({ minLevel }) => currentLevel >= minLevel && !claimedLevels.has(minLevel))?.minLevel || 0
+    const hasRemainingCosmetics = cosmeticUnlocks.some(({ item }) => !(profile.unlockedCosmetics || []).includes(item))
+    const choiceKey = `${profile.id}:${pendingLevel}:${(profile.unlockedCosmetics || []).join('|')}`
+    if (pendingLevel && hasRemainingCosmetics && dismissedCosmeticChoice !== choiceKey) {
+      setShowCosmeticChoice(true)
+    }
+  }, [dismissedCosmeticChoice, profile])
+
   if (!profile) {
     return (
       <main className="game-shell child-cabinet-shell">
@@ -2896,64 +2928,171 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
     )
   }
 
-  const unlocked = new Set(profile.achievementIds)
   const nextReward = profile.rewards.find((reward) => !reward.redeemedAt && profile.starBalance >= reward.starsRequired)
-  const level = computeLevel(profile.totalQuests || 0, profile.starBalance || 0)
+  const xpCurrent = profile.xp || 0
+  const xpLevel = getLevelFromXp(xpCurrent)
   const streak = computeStreak(profile.ledger || [])
   const ageLabel = getAgeLabel(profile.ageGroup)
   const goal = profile.currentGoal
   const goalProgress = goal ? Math.min(100, Math.floor(((profile.starBalance || 0) / goal.starsTarget) * 100)) : 0
   const activeGameLink = activeGameId ? `/player/${activeGameId}/0` : ''
-  const xpCurrent = profile.xp || 0
   const xpNext = xpForNextLevel(xpCurrent)
+  const xpLevelStart = XP_THRESHOLDS[xpLevel - 1] || 0
+  const xpLevelEnd = XP_THRESHOLDS[xpLevel] || xpCurrent + xpNext || xpCurrent + 100
+  const xpProgress = Math.min(100, Math.max(0, Math.floor(((xpCurrent - xpLevelStart) / Math.max(1, xpLevelEnd - xpLevelStart)) * 100)))
   const availableRewards = profile.rewards.filter((reward) => reward.label.trim())
   const equippedCosmetics = profile.equippedCosmetics || {}
+  const claimedChoiceLevels = new Set(profile.cosmeticChoiceLevels || [])
+  const pendingCosmeticLevel = cosmeticUnlocks.find(({ minLevel }) => xpLevel >= minLevel && !claimedChoiceLevels.has(minLevel))?.minLevel || 0
+  const remainingCosmetics = cosmeticUnlocks
+    .filter(({ item }) => !(profile.unlockedCosmetics || []).includes(item))
+    .map(({ item, slot }) => ({ item, slot }))
+  const cosmeticChoiceKey = `${profile.id}:${pendingCosmeticLevel}:${(profile.unlockedCosmetics || []).join('|')}`
+  const shouldOfferCosmetic = pendingCosmeticLevel > 0 && remainingCosmetics.length > 0
+  const maxZonesInQuest = games.reduce((max, game) => {
+    const counts = computeCategoryCountsFromChores(game.chores || [])
+    return Math.max(max, Object.values(counts).filter((count) => count > 0).length)
+  }, 0)
+  const maxKitchenInQuest = games.reduce((max, game) => {
+    const counts = computeCategoryCountsFromChores(game.chores || [])
+    return Math.max(max, counts.kitchen || 0)
+  }, 0)
+  const hasFastQuest = games.some((game) => game.roundMinutes > 0 && game.elapsedSeconds > 0 && game.elapsedSeconds <= game.roundMinutes * 60 * 0.75)
+  const hasPerfectRating = games.some((game) => {
+    const completed = (game.chores || []).filter((chore) => chore.completed)
+    return completed.length > 0 && completed.every((chore) => (chore.partnerRating || 0) >= 5)
+  })
+  const achievementProgress: Record<string, number> = {
+    first_quest: profile.totalQuests || 0,
+    gold_quest: games.some((game) => game.childOutcome?.tier === 'gold') ? 1 : 0,
+    triple_zone: maxZonesInQuest,
+    kitchen_combo: maxKitchenInQuest,
+    speed_runner: hasFastQuest ? 1 : 0,
+    perfect_rating: hasPerfectRating ? 1 : 0,
+    star_collector: profile.starBalance || 0,
+    streak_3: streak,
+    streak_7: streak,
+    many_quests: profile.totalQuests || 0,
+  }
+  const unlocked = new Set([
+    ...(profile.achievementIds || []),
+    ...CATEGORY_ACHIEVEMENTS
+      .filter((achievement) => (achievementProgress[achievement.id] || 0) >= achievement.threshold)
+      .map((achievement) => achievement.id),
+  ])
+
+  const chooseCosmetic = async (item: string, slot: string) => {
+    if (!pendingCosmeticLevel) return
+    const unlockedCosmetics = Array.from(new Set([...(profile.unlockedCosmetics || []), item]))
+    const cosmeticChoiceLevels = Array.from(new Set([...(profile.cosmeticChoiceLevels || []), pendingCosmeticLevel]))
+    const equippedCosmetics = { ...(profile.equippedCosmetics || {}), [slot]: item }
+    setShowCosmeticChoice(false)
+    await saveProfilePatch({ unlockedCosmetics, cosmeticChoiceLevels, equippedCosmetics })
+    setStatus(`${cosmeticItemLabels[item] || item} добавлен к аватарке!`)
+  }
+
+  const changeProgressionAvatar = async (avatar: string) => {
+    await saveProfilePatch({ avatar })
+    setStatus('Персонаж прокачки обновлён.')
+  }
 
   return (
     <main className="game-shell child-cabinet-shell">
       {status && <p className="app-toast">{status}</p>}
       <header className="pixel-panel child-cabinet-header">
         <div className="child-cabinet-hero">
-          <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} cosmetics={profile.equippedCosmetics || {}} />
-          <div>
-            <p className="eyebrow">{ageLabel} · Ур.{level} {streak > 1 ? `🔥 ${streak} дн.` : ''}</p>
+          <div className="hero-avatar-stack">
+            <div className="avatar-hover-wrap">
+              <PixelAvatar avatar={profile.avatar} cosmetics={profile.equippedCosmetics || {}} />
+              <div className="avatar-hover-card">
+                <strong>Прокачка персонажа</strong>
+                <p>Предметы открываются за уровни. Когда появляется новый выбор, ты сам решаешь, что добавить.</p>
+                {profile.avatarUrl && (
+                  <label>
+                    Персонаж для прокачки
+                    <select value={profile.avatar} onChange={(event) => changeProgressionAvatar(event.target.value)}>
+                      {progressionAvatarOptions.map((avatar) => (
+                        <option key={avatar} value={avatar}>{avatar}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <div className="cosmetic-select-grid compact">
+                  {['hat','cloak','staff','pet','potion'].map(slot => {
+                    const current = equippedCosmetics[slot]
+                    const unlockedItems = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot) || u === slot)
+                    if (!unlockedItems.length) return null
+                    return (
+                      <label key={slot}>
+                        {cosmeticSlotLabels[slot] || slot}
+                        <select value={current || ''} onChange={e => {
+                          const val = e.target.value || undefined
+                          const next = {...(profile.equippedCosmetics || {})}
+                          if (val) next[slot] = val
+                          else delete next[slot]
+                          void saveProfilePatch({ equippedCosmetics: next })
+                        }}>
+                          <option value="">не надето</option>
+                          {unlockedItems.map(item => <option key={item} value={item}>{cosmeticItemLabels[item] || item}</option>)}
+                        </select>
+                      </label>
+                    )
+                  })}
+                </div>
+                {shouldOfferCosmetic && (
+                  <button className="tiny-button" type="button" onClick={() => setShowCosmeticChoice(true)}>
+                    Выбрать новый предмет
+                  </button>
+                )}
+                {!profile.unlockedCosmetics?.length && <small>Первый предмет откроется на 2 уровне.</small>}
+              </div>
+            </div>
+            {profile.avatarUrl && <img className="child-profile-photo" src={profile.avatarUrl} alt="Фото профиля" />}
+          </div>
+          <div className="child-cabinet-copy">
+            <p className="eyebrow">{ageLabel} · Ур.{xpLevel} {streak > 1 ? `🔥 ${streak} дн.` : ''}</p>
             <h1>{profile.name}</h1>
             <div className="child-summary-stars">
               <StarSprite />
               <strong>{profile.starBalance}</strong>
               <span>звёзд</span>
             </div>
+            <div className="header-xp-bar" aria-label={`Опыт ${xpCurrent} из ${xpLevelEnd}`}>
+              <div className="header-xp-copy">
+                <span>Опыт</span>
+                <strong>{xpCurrent} / {xpLevelEnd} XP</strong>
+              </div>
+              <div className="progress-track"><div className="progress-fill" style={{width: `${xpProgress}%`}} /></div>
+              <small>До следующего уровня: {xpNext} XP</small>
+            </div>
           </div>
-        </div>
-        <div className="avatar-upgrade-panel">
-          <h3>Прокачка аватара</h3>
-          <p className="hint">Предметы открываются по уровням. Выбери, что надеть на персонажа.</p>
-          <div className="cosmetic-select-grid">
-            {['hat','cloak','staff','pet','potion'].map(slot => {
-              const current = equippedCosmetics[slot]
-              const unlockedItems = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot))
-              if (!unlockedItems.length) return null
-              return (
-                <label key={slot}>
-                  {cosmeticSlotLabels[slot] || slot}
-                  <select value={current || ''} onChange={e => {
-                    const val = e.target.value || undefined
-                    const next = {...(profile.equippedCosmetics || {})}
-                    if (val) next[slot] = val
-                    else delete next[slot]
-                    setProfile({...profile, equippedCosmetics: next} as any)
-                    api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({equippedCosmetics: next})}).catch(()=>{})
-                  }}>
-                    <option value="">— нет —</option>
-                    {unlockedItems.map(item => <option key={item} value={item}>{cosmeticItemLabels[item] || item}</option>)}
-                  </select>
-                </label>
-              )
-            })}
-          </div>
-          {!profile.unlockedCosmetics?.length && <p className="hint">Первый предмет откроется на 2 уровне.</p>}
         </div>
       </header>
+
+      {showCosmeticChoice && shouldOfferCosmetic && (
+        <div className="modal-backdrop cosmetic-choice-backdrop">
+          <article className="pixel-panel cosmetic-choice-modal">
+            <button className="modal-close-button" type="button" onClick={() => {
+              setDismissedCosmeticChoice(cosmeticChoiceKey)
+              setShowCosmeticChoice(false)
+            }}>×</button>
+            <p className="eyebrow">Новый уровень</p>
+            <h2>Выбери предмет для аватарки</h2>
+            <p className="hint">Этот выбор сохранится. Уже выбранные предметы второй раз не появляются.</p>
+            <div className="cosmetic-choice-grid">
+              {remainingCosmetics.map(({ item, slot }) => (
+                <button className="cosmetic-choice-card" key={item} type="button" onClick={() => chooseCosmetic(item, slot)}>
+                  <span className={`cosmetic-choice-preview ${slot}`}>
+                    <img src={`/avatars/accessories/${item}.svg`} alt="" />
+                  </span>
+                  <strong>{cosmeticItemLabels[item] || item}</strong>
+                  <small>{cosmeticSlotLabels[slot] || slot}</small>
+                </button>
+              ))}
+            </div>
+          </article>
+        </div>
+      )}
 
       <article className="pixel-panel child-goal-card">
         <div>
@@ -2965,15 +3104,6 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           {goal && <span>{goalProgress}%</span>}
         </div>
         {goal && <div className="progress-track"><div className="progress-fill" style={{width: `${goalProgress}%`}} /></div>}
-      </article>
-
-      <article className="pixel-panel child-xp-card">
-        <div>
-          <p className="eyebrow">Опыт</p>
-          <strong>{xpCurrent} / {xpCurrent + xpNext} XP · Ур. {getLevelFromXp(xpCurrent)}</strong>
-        </div>
-        <small>До следующего уровня: {xpNext} XP</small>
-        <div className="progress-track"><div className="progress-fill" style={{width: `${Math.min(100, (xpCurrent % 50) * 2)}%`}} /></div>
       </article>
 
       <section className={activeGameLink ? 'child-task-zone has-active' : 'child-task-zone'}>
@@ -3066,13 +3196,18 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
         <article className="pixel-panel child-achievements-panel">
           <h2>Достижения</h2>
           <div className="achievement-grid">
-            {CATEGORY_ACHIEVEMENTS.map((achievement) => (
-              <div className={`achievement-card ${unlocked.has(achievement.id) ? 'unlocked' : ''}`} key={achievement.id}>
-                <AchievementBadge achievement={achievement} unlocked={unlocked.has(achievement.id)} />
-                <strong>{achievement.title}</strong>
-                <span>{unlocked.has(achievement.id) ? 'Открыто!' : `${profile.categoryCounts[achievement.icon] || 0}/${achievement.threshold} дел`}</span>
-              </div>
-            ))}
+            {CATEGORY_ACHIEVEMENTS.map((achievement) => {
+              const isUnlocked = unlocked.has(achievement.id)
+              const progress = Math.min(achievement.threshold, achievementProgress[achievement.id] || 0)
+              return (
+                <div className={`achievement-card ${isUnlocked ? 'unlocked' : ''}`} key={achievement.id}>
+                  <AchievementBadge achievement={achievement} unlocked={isUnlocked} />
+                  <strong>{achievement.title}</strong>
+                  <span>{achievement.description}</span>
+                  <small>{isUnlocked ? 'Открыто!' : `${progress}/${achievement.threshold}`}</small>
+                </div>
+              )
+            })}
           </div>
         </article>
 
@@ -3127,16 +3262,6 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           )}
           {cabinetPanel === 'history' && (
             <>
-              <div className="child-log-actions">
-                <button className="tiny-button" onClick={() => {
-                  const text = games.slice(0,10).map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')} — ${g.childOutcome?.starsEarned||0}★`).join('\n')
-                  navigator.clipboard?.writeText(`Отчёт ${profile.name}: ${profile.starBalance}★ всего\n${text}`).then(()=>setStatus('Отчёт скопирован'))
-                }}>Копировать</button>
-                <button className="tiny-button" onClick={() => {
-                  const csv = ['Дата,Монеты,Звёзды,Приз'].concat(games.map(g => `${new Date(g.finishedAt||'').toLocaleDateString('ru')},${g.childOutcome?.coins||0},${g.childOutcome?.starsEarned||0},"${g.childOutcome?.prizeLabel||''}"`)).join('\n')
-                  const blob = new Blob([csv], {type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`report-${profile.name}.csv`; a.click(); URL.revokeObjectURL(url)
-                }}>CSV</button>
-              </div>
               <div className="history-list">
                 {games.map((game) => (
                   <div className="history-row" key={game.id}>
@@ -3146,7 +3271,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                     </div>
                   </div>
                 ))}
-                {!games.length && <p className="hint">Пока нет сохранённых квестов.</p>}
+                {!games.length && <p className="hint">История квестов появится после первой сохранённой игры.</p>}
               </div>
             </>
           )}

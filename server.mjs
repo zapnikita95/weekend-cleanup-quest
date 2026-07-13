@@ -91,12 +91,7 @@ const getPairKey = (players) =>
 const defaultStarRules = () => ({ gold: 3, silver: 2, bronze: 1 })
 
 const categoryAchievements = [
-  { id: 'kitchen_master', icon: 'kitchen', threshold: 5 },
-  { id: 'bath_hero', icon: 'bath', threshold: 5 },
-  { id: 'bedroom_guard', icon: 'bedroom', threshold: 5 },
-  { id: 'living_champ', icon: 'living', threshold: 5 },
-  { id: 'garden_ranger', icon: 'garden', threshold: 5 },
-  { id: 'hall_keeper', icon: 'hall', threshold: 5 },
+  { id: 'kitchen_combo', icon: 'kitchen', threshold: 3 },
 ]
 
 const computeCategoryCountsFromChores = (chores = []) => {
@@ -121,7 +116,28 @@ const unlockAchievements = (categoryCounts, currentIds = []) => {
   for (const achievement of categoryAchievements) {
     if ((categoryCounts[achievement.icon] || 0) >= achievement.threshold) next.add(achievement.id)
   }
+  if (Object.values(categoryCounts || {}).filter((count) => Number(count || 0) > 0).length >= 3) next.add('triple_zone')
   return [...next]
+}
+
+const computeLedgerStreak = (ledger = []) => {
+  if (!ledger.length) return 0
+  const days = [...new Set(ledger.map((entry) => String(entry.createdAt || '').slice(0, 10)).filter(Boolean))]
+    .sort()
+    .reverse()
+  let streak = 1
+  let previous = new Date(days[0])
+  for (let i = 1; i < days.length; i++) {
+    const current = new Date(days[i])
+    const diffDays = Math.round((previous.getTime() - current.getTime()) / (1000 * 3600 * 24))
+    if (diffDays === 1) {
+      streak += 1
+      previous = current
+    } else if (diffDays > 1) {
+      break
+    }
+  }
+  return streak
 }
 
 const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatarUrl = '', ageGroup = 'kid' }) => ({
@@ -156,6 +172,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   xp: 0,
   equippedCosmetics: {},
   unlockedCosmetics: [],
+  cosmeticChoiceLevels: [],
   regularTasks: [],
   lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
   createdAt: new Date().toISOString(),
@@ -200,6 +217,7 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
   xp: Number(profile.xp ?? fallback.xp ?? 0),
   equippedCosmetics: profile.equippedCosmetics && typeof profile.equippedCosmetics === 'object' ? profile.equippedCosmetics : fallback.equippedCosmetics || {},
   unlockedCosmetics: Array.isArray(profile.unlockedCosmetics) ? profile.unlockedCosmetics : fallback.unlockedCosmetics || [],
+  cosmeticChoiceLevels: Array.isArray(profile.cosmeticChoiceLevels) ? profile.cosmeticChoiceLevels.map(Number).filter(Number.isFinite) : fallback.cosmeticChoiceLevels || [],
   regularTasks: Array.isArray(profile.regularTasks) ? profile.regularTasks.map(t => ({
     id: String(t.id || makeId()),
     label: String(t.label || 'Задание'),
@@ -250,16 +268,27 @@ const applyChildOutcome = (db, outcome, gameId) => {
     note: String(outcome.prizeLabel || outcome.note || 'Квест завершён') + (skillBonusStars > 0 ? ` (+${skillBonusStars} за навыки)` : ''),
     createdAt: new Date().toISOString(),
   }
+  const totalQuests = Number(previous.totalQuests || 0) + 1
+  const starBalance = Number(previous.starBalance || 0) + totalStarsThisQuest
+  const nextAchievementIds = new Set(unlockAchievements(categoryCounts, previous.achievementIds || []))
+  const nextLedger = [...(previous.ledger || []), ledgerEntry]
+  const streak = computeLedgerStreak(nextLedger)
+  if (totalQuests >= 1) nextAchievementIds.add('first_quest')
+  if (String(outcome.tier || '') === 'gold') nextAchievementIds.add('gold_quest')
+  if (starBalance >= 10) nextAchievementIds.add('star_collector')
+  if (streak >= 3) nextAchievementIds.add('streak_3')
+  if (streak >= 7) nextAchievementIds.add('streak_7')
+  if (totalQuests >= 14) nextAchievementIds.add('many_quests')
 
   db.childProfiles[profileId] = sanitizeChildProfile({
     ...previous,
-    starBalance: Number(previous.starBalance || 0) + totalStarsThisQuest,
-    totalQuests: Number(previous.totalQuests || 0) + 1,
+    starBalance,
+    totalQuests,
     categoryCounts,
-    achievementIds: unlockAchievements(categoryCounts, previous.achievementIds || []),
+    achievementIds: [...nextAchievementIds],
     skillLevels: newSkillLevels,
     xp: Number(previous.xp || 0) + (outcome.coins ? Math.floor(outcome.coins * 0.4) : 20),
-    ledger: [...(previous.ledger || []), ledgerEntry],
+    ledger: nextLedger,
     updatedAt: new Date().toISOString(),
   })
 }

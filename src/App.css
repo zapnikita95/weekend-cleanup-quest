@@ -1027,7 +1027,7 @@ label {
 
 .child-cabinet-header {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  grid-template-columns: 1fr;
   align-items: center;
   gap: 18px;
   padding: 18px;
@@ -1037,6 +1037,94 @@ label {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.hero-avatar-stack {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.avatar-hover-wrap {
+  position: relative;
+}
+
+.avatar-hover-card {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  z-index: 20;
+  display: none;
+  width: min(360px, 82vw);
+  gap: 10px;
+  border: 4px solid var(--ink);
+  background: linear-gradient(135deg, #fffaf0, #dff7ff);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 12px;
+}
+
+.avatar-hover-wrap:hover .avatar-hover-card,
+.avatar-hover-wrap:focus-within .avatar-hover-card {
+  display: grid;
+}
+
+.avatar-hover-card p,
+.avatar-hover-card small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.avatar-hover-card select,
+.cosmetic-select-grid select {
+  width: 100%;
+  border: 3px solid var(--ink);
+  background: white;
+  padding: 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.child-profile-photo {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 38px;
+  height: 38px;
+  border: 3px solid var(--ink);
+  background: white;
+  object-fit: cover;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.child-cabinet-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.header-xp-bar {
+  display: grid;
+  gap: 6px;
+  max-width: 430px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 255, 255, 0.58);
+  padding: 8px;
+  box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.24);
+}
+
+.header-xp-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.header-xp-bar small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .child-cabinet-grid {
@@ -1061,6 +1149,10 @@ label {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
+}
+
+.cosmetic-select-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .cosmetic-select-grid label {
@@ -1198,8 +1290,8 @@ label {
 
 .achievement-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
 }
 
 .achievement-card {
@@ -1208,7 +1300,11 @@ label {
   justify-items: center;
   text-align: center;
   border: 3px solid var(--ink);
-  background: rgba(255, 255, 255, 0.55);
+  background:
+    linear-gradient(rgba(31, 24, 61, 0.05) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(31, 24, 61, 0.05) 2px, transparent 2px),
+    rgba(255, 255, 255, 0.62);
+  background-size: 12px 12px, 12px 12px, auto;
   padding: 14px;
   opacity: 0.72;
 }
@@ -1244,6 +1340,17 @@ label {
   height: 42px;
 }
 
+.achievement-icon {
+  width: 46px;
+  height: 46px;
+  image-rendering: pixelated;
+  filter: grayscale(1) saturate(0.3);
+}
+
+.achievement-badge.unlocked .achievement-icon {
+  filter: drop-shadow(2px 2px 0 rgba(31, 24, 61, 0.32));
+}
+
 .achievement-ribbon {
   position: absolute;
   right: -13px;
@@ -1256,6 +1363,59 @@ label {
   background: var(--pink);
   font-size: 14px;
   font-weight: 900;
+}
+
+.cosmetic-choice-backdrop {
+  z-index: 60;
+}
+
+.cosmetic-choice-modal {
+  position: relative;
+  width: min(620px, calc(100vw - 28px));
+  max-height: min(720px, calc(100vh - 28px));
+  overflow: auto;
+  padding: 20px;
+}
+
+.cosmetic-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.cosmetic-choice-card {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  border: 4px solid var(--ink);
+  background: linear-gradient(135deg, #fffaf0, #ffe9f5);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 14px 10px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cosmetic-choice-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.cosmetic-choice-preview {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border: 3px solid var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.cosmetic-choice-preview img {
+  width: 52px;
+  height: 52px;
+  image-rendering: pixelated;
+  object-fit: contain;
 }
 
 .skill-tree {

@@ -44,6 +44,7 @@ export type ChildProfile = {
   xp: number
   equippedCosmetics?: Record<string, string>  // e.g. { hat: 'crown', cloak: 'blue', pet: 'slime' }
   unlockedCosmetics?: string[]
+  cosmeticChoiceLevels?: number[]
   regularTasks?: Array<{ id: string; label: string; xp: number; stars: number }>
   lootboxRewards?: string[]  // e.g. ['+30xp', '+2stars', 'potion']
   pendingRegulars?: Array<{ id: string; label: string; xp: number; stars: number; doneAt?: string }>
@@ -65,12 +66,16 @@ export type ChildQuestOutcome = {
 export const defaultStarRules: StarRules = { gold: 3, silver: 2, bronze: 1 }
 
 export const CATEGORY_ACHIEVEMENTS = [
-  { id: 'kitchen_master', icon: 'kitchen', title: 'Повелитель кухни', threshold: 5 },
-  { id: 'bath_hero', icon: 'bath', title: 'Герой ванной', threshold: 5 },
-  { id: 'bedroom_guard', icon: 'bedroom', title: 'Страж спальни', threshold: 5 },
-  { id: 'living_champ', icon: 'living', title: 'Чемпион гостиной', threshold: 5 },
-  { id: 'garden_ranger', icon: 'garden', title: 'Садовый рейнджер', threshold: 5 },
-  { id: 'hall_keeper', icon: 'hall', title: 'Хранитель прихожей', threshold: 5 },
+  { id: 'first_quest', icon: 'trophy', title: 'Первый геройский квест', threshold: 1, description: 'Заверши первый квест.' },
+  { id: 'gold_quest', icon: 'gold', title: 'Золотой финиш', threshold: 1, description: 'Получи золото в квесте.' },
+  { id: 'triple_zone', icon: 'rooms', title: 'Три зоны за раз', threshold: 3, description: 'Закрой дела сразу в трёх разных зонах.' },
+  { id: 'kitchen_combo', icon: 'kitchen', title: 'Кухонный комбо-мастер', threshold: 3, description: 'Сделай три кухонных дела.' },
+  { id: 'speed_runner', icon: 'speed', title: 'Скоростной титан', threshold: 1, description: 'Заверши квест быстрее лимита.' },
+  { id: 'perfect_rating', icon: 'shield', title: 'Идеальная оценка', threshold: 1, description: 'Получай высшие оценки за дела.' },
+  { id: 'star_collector', icon: 'stars', title: 'Коллекционер звёзд', threshold: 10, description: 'Накопи 10 звёзд.' },
+  { id: 'streak_3', icon: 'streak', title: 'Три дня подряд', threshold: 3, description: 'Держи серию из 3 дней.' },
+  { id: 'streak_7', icon: 'streak', title: 'Неделя героя', threshold: 7, description: 'Держи серию из 7 дней.' },
+  { id: 'many_quests', icon: 'calendar', title: 'Две недели в игре', threshold: 14, description: 'Заверши 14 квестов.' },
 ] as const
 
 // RPG Skill Tree
@@ -161,9 +166,8 @@ export const computeCategoryCountsFromChores = (chores: Array<{ completed?: bool
 
 export const unlockAchievements = (categoryCounts: Record<string, number>, currentIds: string[]) => {
   const next = new Set(currentIds)
-  for (const achievement of CATEGORY_ACHIEVEMENTS) {
-    if ((categoryCounts[achievement.icon] || 0) >= achievement.threshold) next.add(achievement.id)
-  }
+  if ((categoryCounts.kitchen || 0) >= 3) next.add('kitchen_combo')
+  if (Object.values(categoryCounts).filter((count) => count > 0).length >= 3) next.add('triple_zone')
   return [...next]
 }
 
