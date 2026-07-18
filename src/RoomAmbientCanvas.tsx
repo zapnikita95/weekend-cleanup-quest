@@ -80,7 +80,7 @@ export function RoomAmbientCanvas({ ambient, className }: RoomAmbientCanvasProps
     const ro = new ResizeObserver(resize)
     ro.observe(canvas)
 
-    for (let i = 0; i < 28; i++) particles.push(spawn(w || 320, h || 240, ambientRef.current))
+    for (let i = 0; i < 48; i++) particles.push(spawn(w || 320, h || 240, ambientRef.current))
 
     const tick = (now: number) => {
       if (!running) return
@@ -108,7 +108,7 @@ export function RoomAmbientCanvas({ ambient, className }: RoomAmbientCanvasProps
       ctx.fillStyle = wash
       ctx.fillRect(0, 0, w, h)
 
-      while (particles.length < 32) particles.push(spawn(w, h, theme))
+      while (particles.length < 56) particles.push(spawn(w, h, theme))
 
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i]

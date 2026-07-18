@@ -32,7 +32,7 @@ export function FxBurst({ activeKey, label, className }: FxBurstProps) {
 
     const sparks: Spark[] = []
     const colors = ['#ffd76a', '#ff79b8', '#66e3ff', '#53e3c0', '#fff4bd']
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 22; i++) {
       const el = document.createElement('span')
       el.className = 'fx-spark'
       el.style.background = colors[i % colors.length]

@@ -32,7 +32,7 @@ export function HeroWalker({ children, className }: HeroWalkerProps) {
     let raf = 0
     let running = true
     const start = performance.now()
-    const cycleMs = 7800
+    const cycleMs = 6400
     let lastFacing = 1
     let dustCooldown = 0
     let lastT = 0
@@ -53,15 +53,16 @@ export function HeroWalker({ children, className }: HeroWalkerProps) {
       const speed = Math.abs(eased - lastT) * (goingRight ? 1 : 1)
       lastT = eased
 
-      const bob = Math.sin(elapsed / 120) * (edgeHold ? 1.2 : 3.6)
-      const stretchY = edgeHold ? 1 : 1 + Math.sin(elapsed / 90) * 0.035
-      const squashX = edgeHold ? 1 : 1 - Math.sin(elapsed / 90) * 0.04
+      const bob = Math.sin(elapsed / 95) * (edgeHold ? 1.5 : 5.2)
+      const stretchY = edgeHold ? 1 : 1 + Math.sin(elapsed / 75) * 0.055
+      const squashX = edgeHold ? 1 : 1 - Math.sin(elapsed / 75) * 0.06
+      const lean = edgeHold ? 0 : facing * 3
 
       root.style.left = `${x * 100}%`
       root.style.bottom = '10%'
       root.style.transform = `translateX(-50%)`
 
-      body.style.transform = `scaleX(${facing * squashX}) scaleY(${stretchY}) translateY(${bob}px)`
+      body.style.transform = `scaleX(${facing * squashX}) scaleY(${stretchY}) translateY(${bob}px) rotate(${lean}deg)`
       shadow.style.transform = `translateX(-50%) scaleX(${1.05 + Math.abs(bob) * 0.02})`
       shadow.style.opacity = String(0.28 + Math.abs(bob) * 0.015)
 

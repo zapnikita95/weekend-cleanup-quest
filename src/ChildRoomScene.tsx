@@ -73,7 +73,7 @@ export function ChildRoomScene({
     if (!placed.length) return
     const last = placed[placed.length - 1]
     setPopItemId(last)
-    const timer = window.setTimeout(() => setPopItemId(null), 1100)
+    const timer = window.setTimeout(() => setPopItemId(null), 1200)
     return () => window.clearTimeout(timer)
   }, [placedKey, placed])
 
@@ -81,15 +81,14 @@ export function ChildRoomScene({
     const onMove = (event: PointerEvent) => {
       const nx = (event.clientX / Math.max(1, window.innerWidth) - 0.5) * 2
       const ny = (event.clientY / Math.max(1, window.innerHeight) - 0.5) * 2
-      setParallax({ x: nx * 8, y: ny * 5 })
+      setParallax({ x: nx * 10, y: ny * 6 })
     }
     window.addEventListener('pointermove', onMove, { passive: true })
     return () => window.removeEventListener('pointermove', onMove)
   }, [])
 
   const acceptRoom = () => {
-    const next = acceptNextRoom(progress)
-    onRoomProgressChange(next)
+    onRoomProgressChange(acceptNextRoom(progress))
     setShowOffer(false)
     setSceneKey((k) => k + 1)
   }
@@ -100,100 +99,99 @@ export function ChildRoomScene({
   }
 
   return (
-    <div className="child-room-layout">
+    <div className="child-room-layout child-room-layout-hero">
       <div className={`child-room-stage ambient-${theme.ambient}`} key={sceneKey} data-theme={theme.id}>
         <div
-          className="child-room-bg child-room-bg-far"
+          className="child-room-bg child-room-bg-scene"
           style={{
-            backgroundImage: `url(${theme.backdropSrc})`,
-            transform: `translate(${parallax.x * 0.35}px, ${parallax.y * 0.25}px) scale(1.12)`,
+            backgroundImage: `url(${theme.sceneSrc})`,
+            transform: `translate(${parallax.x * 0.4}px, ${parallax.y * 0.3}px) scale(1.08)`,
           }}
         />
         <div
-          className="child-room-bg child-room-bg-near"
+          className="child-room-bg child-room-bg-glow"
           style={{
             backgroundImage: `url(${theme.backdropSrc})`,
-            transform: `translate(${parallax.x * 0.7}px, ${parallax.y * 0.45}px) scale(1.06)`,
-            opacity: 0.35,
-            mixBlendMode: 'soft-light',
+            transform: `translate(${parallax.x * 0.8}px, ${parallax.y * 0.5}px) scale(1.2)`,
           }}
         />
         <div className="child-room-light-sweep" aria-hidden />
+        <div className="child-room-vignette" aria-hidden />
         <RoomAmbientCanvas ambient={theme.ambient} />
-        <div className="child-room-floor" />
-        <div className="child-room-items">
-          {Array.from({ length: ITEMS_PER_ROOM }, (_, slot) => {
-            const itemId = placed[slot]
-            const def = itemId ? getRoomItemDef(theme, itemId) : undefined
-            const isNew = popItemId === itemId
-            return (
-              <div
-                className={`room-item-slot ${def ? 'filled' : 'empty'} ${isNew ? 'pop' : ''} ${def ? 'idle-float' : ''}`}
-                key={`${theme.id}-slot-${slot}`}
-                style={
-                  def
-                    ? {
-                        animationDelay: `${slot * 180}ms`,
-                        animationDuration: `${2.4 + slot * 0.25}s`,
-                      }
-                    : undefined
-                }
-              >
-                {def ? (
-                  <>
-                    <img src={def.src} alt={def.label} title={def.label} />
-                    {isNew && <span className="item-sparkle-ring" aria-hidden />}
-                  </>
-                ) : (
-                  <span className="room-item-ghost" aria-hidden />
-                )}
-              </div>
-            )
-          })}
-        </div>
+
+        {theme.items.map((slotItem, slot) => {
+          const owned = placed.includes(slotItem.id)
+          const def = owned ? getRoomItemDef(theme, slotItem.id) : undefined
+          const isNew = popItemId === slotItem.id
+          return (
+            <div
+              className={`room-prop ${owned ? 'owned' : 'locked'} ${isNew ? 'pop' : ''} ${owned ? 'idle-float' : ''} ${slotItem.id.includes('fish') ? 'swim' : ''} ${slotItem.id.includes('star') ? 'twinkle-prop' : ''}`}
+              key={`${theme.id}-${slotItem.id}`}
+              style={{
+                left: `${slotItem.x}%`,
+                top: `${slotItem.y}%`,
+                ['--prop-scale' as string]: String(slotItem.scale || 1),
+                animationDelay: owned ? `${slot * 160}ms` : undefined,
+              }}
+            >
+              {def ? (
+                <>
+                  <img src={def.src} alt={def.label} title={def.label} />
+                  {isNew && <span className="item-sparkle-ring" aria-hidden />}
+                  {isNew && <span className="item-burst" aria-hidden />}
+                </>
+              ) : (
+                <span className="room-prop-ghost" title="Скоро откроется" aria-hidden />
+              )}
+            </div>
+          )
+        })}
+
         <HeroWalker>
           {renderAvatar({ avatar, avatarUrl, cosmetics: wearCosmetics, small: true })}
         </HeroWalker>
-        <div className="child-room-badge">
-          <strong>{theme.label}</strong>
-          <span>
-            {placed.length}/{ITEMS_PER_ROOM} предметов
-          </span>
-          <div className="room-progress-dots" aria-hidden>
-            {Array.from({ length: ITEMS_PER_ROOM }, (_, i) => (
-              <span key={i} className={i < placed.length ? 'on' : ''} />
-            ))}
+
+        <div className="child-room-hud">
+          <div className="child-room-badge">
+            <strong>{theme.label}</strong>
+            <span>
+              {placed.length}/{ITEMS_PER_ROOM} предметов · Ур.{xpLevel}
+            </span>
+            <div className="room-progress-dots" aria-hidden>
+              {Array.from({ length: ITEMS_PER_ROOM }, (_, i) => (
+                <span key={i} className={i < placed.length ? 'on' : ''} />
+              ))}
+            </div>
+          </div>
+          <div className="child-room-identity">
+            <div className="child-summary-stars room-hud-stars">
+              {renderStar()}
+              <strong>{starBalance}</strong>
+            </div>
+            <div>
+              <p className="eyebrow">{ageLabel}</p>
+              <h1>{name}</h1>
+            </div>
+          </div>
+          <div className="header-xp-bar room-hud-xp" aria-label={`Опыт ${xpCurrent} из ${xpLevelEnd}`}>
+            <div className="header-xp-copy">
+              <span>Опыт</span>
+              <strong>
+                {xpCurrent} / {xpLevelEnd} XP
+              </strong>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill smooth-xp" style={{ width: `${xpProgress}%` }} />
+            </div>
+            <small>До уровня: {xpNext} XP → новый предмет</small>
           </div>
         </div>
+
         {progress.offerNextRoom && !showOffer && (
           <button className="tiny-button room-offer-reopen" type="button" onClick={() => setShowOffer(true)}>
             Новая комната!
           </button>
         )}
-      </div>
-
-      <div className="child-cabinet-copy room-copy">
-        <p className="eyebrow">
-          {ageLabel} · Ур.{xpLevel}
-        </p>
-        <h1>{name}</h1>
-        <div className="child-summary-stars">
-          {renderStar()}
-          <strong>{starBalance}</strong>
-          <span>звёзд</span>
-        </div>
-        <div className="header-xp-bar" aria-label={`Опыт ${xpCurrent} из ${xpLevelEnd}`}>
-          <div className="header-xp-copy">
-            <span>Опыт</span>
-            <strong>
-              {xpCurrent} / {xpLevelEnd} XP
-            </strong>
-          </div>
-          <div className="progress-track">
-            <div className="progress-fill smooth-xp" style={{ width: `${xpProgress}%` }} />
-          </div>
-          <small>До следующего уровня: {xpNext} XP · предмет в комнату</small>
-        </div>
       </div>
 
       {showOffer && progress.offerNextRoom && (

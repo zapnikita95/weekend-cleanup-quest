@@ -1749,33 +1749,38 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                     <div className="child-profile-picker">
                       <div className="child-profile-card-list">
                         {parentChildProfiles.map((profile) => (
-                          <div
-                            className={selectedChildProfileId === profile.id ? 'child-profile-chip-wrap active' : 'child-profile-chip-wrap'}
+                          <button
+                            className={selectedChildProfileId === profile.id ? 'child-profile-chip active' : 'child-profile-chip'}
                             key={profile.id}
+                            type="button"
+                            onClick={() => setSelectedChildProfileId(profile.id)}
                           >
-                            <button
-                              className={selectedChildProfileId === profile.id ? 'child-profile-chip active' : 'child-profile-chip'}
-                              type="button"
-                              onClick={() => setSelectedChildProfileId(profile.id)}
-                            >
-                              <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} small />
-                              <span>
-                                <strong>{profile.name}</strong>
-                                <small>{profile.ageGroup === 'teen' ? 'Подросток' : 'Ребёнок'}</small>
-                              </span>
-                            </button>
-                            <button
-                              className="tiny-button child-profile-copy-link"
-                              type="button"
+                            <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} small />
+                            <span className="child-profile-chip-meta">
+                              <strong>{profile.name}</strong>
+                              <small>{profile.ageGroup === 'teen' ? 'Подросток' : 'Ребёнок'}</small>
+                            </span>
+                            <span
+                              className="child-profile-copy-link"
+                              role="button"
+                              tabIndex={0}
                               title="Скопировать ссылку на профиль"
                               onClick={(event) => {
+                                event.preventDefault()
                                 event.stopPropagation()
                                 void copyChildCabinetLink(profile.id)
                               }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  void copyChildCabinetLink(profile.id)
+                                }
+                              }}
                             >
                               Ссылка
-                            </button>
-                          </div>
+                            </span>
+                          </button>
                         ))}
                       </div>
                       <div className="child-profile-actions">
@@ -3042,8 +3047,8 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   return (
     <main className="game-shell child-cabinet-shell">
       {status && <p className="app-toast">{status}</p>}
-      <header className="pixel-panel child-cabinet-header">
-        <div className="child-cabinet-hero">
+      <header className="pixel-panel child-cabinet-header child-cabinet-header-room">
+        <div className="child-cabinet-hero child-cabinet-hero-room">
           <ChildRoomScene
             avatar={profile.avatar}
             avatarUrl={profile.avatarUrl}
@@ -3109,7 +3114,6 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                 {!profile.unlockedCosmetics?.length && <small>Первый аксессуар откроется на 2 уровне.</small>}
               </div>
             </div>
-            {profile.avatarUrl && <img className="child-profile-photo" src={profile.avatarUrl} alt="Фото профиля" />}
           </div>
         </div>
       </header>

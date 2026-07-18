@@ -6,12 +6,17 @@ export type RoomItemDef = {
   id: string
   label: string
   src: string
+  /** percent position inside the room stage */
+  x: number
+  y: number
+  scale?: number
 }
 
 export type RoomThemeDef = {
   id: RoomThemeId
   label: string
   backdropSrc: string
+  sceneSrc: string
   ambient: 'cozy' | 'castle' | 'ocean' | 'beach' | 'space'
   items: RoomItemDef[]
 }
@@ -28,65 +33,70 @@ export const ROOM_THEMES: RoomThemeDef[] = [
     id: 'room',
     label: 'Уютная комната',
     backdropSrc: '/avatars/backgrounds/backdrop-room.svg',
+    sceneSrc: '/rooms/scenes/room.svg',
     ambient: 'cozy',
     items: [
-      { id: 'room-bed', label: 'Кровать', src: '/rooms/room/bed.svg' },
-      { id: 'room-lamp', label: 'Лампа', src: '/rooms/room/lamp.svg' },
-      { id: 'room-rug', label: 'Коврик', src: '/rooms/room/rug.svg' },
-      { id: 'room-shelf', label: 'Полка', src: '/rooms/room/shelf.svg' },
-      { id: 'room-plant', label: 'Растение', src: '/rooms/room/plant.svg' },
+      { id: 'room-bed', label: 'Кровать', src: '/rooms/room/bed.svg', x: 12, y: 62, scale: 1.35 },
+      { id: 'room-lamp', label: 'Лампа', src: '/rooms/room/lamp.svg', x: 34, y: 48, scale: 1.1 },
+      { id: 'room-rug', label: 'Коврик', src: '/rooms/room/rug.svg', x: 48, y: 74, scale: 1.4 },
+      { id: 'room-shelf', label: 'Полка', src: '/rooms/room/shelf.svg', x: 68, y: 42, scale: 1.15 },
+      { id: 'room-plant', label: 'Растение', src: '/rooms/room/plant.svg', x: 84, y: 58, scale: 1.2 },
     ],
   },
   {
     id: 'castle',
     label: 'Замок героя',
     backdropSrc: '/avatars/backgrounds/backdrop-castle.svg',
+    sceneSrc: '/rooms/scenes/castle.svg',
     ambient: 'castle',
     items: [
-      { id: 'castle-throne', label: 'Трон', src: '/rooms/castle/throne.svg' },
-      { id: 'castle-shield', label: 'Щит', src: '/rooms/castle/shield.svg' },
-      { id: 'castle-banner', label: 'Знамя', src: '/rooms/castle/banner.svg' },
-      { id: 'castle-chest', label: 'Сундук', src: '/rooms/castle/chest.svg' },
-      { id: 'castle-torch', label: 'Факел', src: '/rooms/castle/torch.svg' },
+      { id: 'castle-throne', label: 'Трон', src: '/rooms/castle/throne.svg', x: 46, y: 52, scale: 1.4 },
+      { id: 'castle-shield', label: 'Щит', src: '/rooms/castle/shield.svg', x: 22, y: 40, scale: 1.15 },
+      { id: 'castle-banner', label: 'Знамя', src: '/rooms/castle/banner.svg', x: 72, y: 28, scale: 1.2 },
+      { id: 'castle-chest', label: 'Сундук', src: '/rooms/castle/chest.svg', x: 78, y: 68, scale: 1.25 },
+      { id: 'castle-torch', label: 'Факел', src: '/rooms/castle/torch.svg', x: 12, y: 36, scale: 1.1 },
     ],
   },
   {
     id: 'ocean',
     label: 'Подводный мир',
     backdropSrc: '/avatars/backgrounds/backdrop-ocean.svg',
+    sceneSrc: '/rooms/scenes/ocean.svg',
     ambient: 'ocean',
     items: [
-      { id: 'ocean-coral', label: 'Коралл', src: '/rooms/ocean/coral.svg' },
-      { id: 'ocean-chest', label: 'Сундук', src: '/rooms/ocean/chest.svg' },
-      { id: 'ocean-weed', label: 'Водоросли', src: '/rooms/ocean/weed.svg' },
-      { id: 'ocean-shell', label: 'Ракушка', src: '/rooms/ocean/shell.svg' },
-      { id: 'ocean-fish', label: 'Рыбка', src: '/rooms/ocean/fish.svg' },
+      { id: 'ocean-coral', label: 'Коралл', src: '/rooms/ocean/coral.svg', x: 14, y: 62, scale: 1.3 },
+      { id: 'ocean-chest', label: 'Сундук', src: '/rooms/ocean/chest.svg', x: 42, y: 70, scale: 1.25 },
+      { id: 'ocean-weed', label: 'Водоросли', src: '/rooms/ocean/weed.svg', x: 70, y: 58, scale: 1.35 },
+      { id: 'ocean-shell', label: 'Ракушка', src: '/rooms/ocean/shell.svg', x: 58, y: 78, scale: 1.05 },
+      { id: 'ocean-fish', label: 'Рыбка', src: '/rooms/ocean/fish.svg', x: 82, y: 36, scale: 1.2 },
     ],
   },
   {
     id: 'beach',
     label: 'Пляж',
     backdropSrc: '/avatars/backgrounds/backdrop-tropics.svg',
+    sceneSrc: '/rooms/scenes/beach.svg',
     ambient: 'beach',
     items: [
-      { id: 'beach-umbrella', label: 'Зонт', src: '/rooms/beach/umbrella.svg' },
-      { id: 'beach-bucket', label: 'Ведро', src: '/rooms/beach/bucket.svg' },
-      { id: 'beach-palm', label: 'Пальма', src: '/rooms/beach/palm.svg' },
-      { id: 'beach-can', label: 'Лейка', src: '/rooms/beach/can.svg' },
-      { id: 'beach-ball', label: 'Мяч', src: '/rooms/beach/ball.svg' },
+      { id: 'beach-umbrella', label: 'Зонт', src: '/rooms/beach/umbrella.svg', x: 24, y: 48, scale: 1.4 },
+      { id: 'beach-bucket', label: 'Ведро', src: '/rooms/beach/bucket.svg', x: 44, y: 72, scale: 1.15 },
+      { id: 'beach-palm', label: 'Пальма', src: '/rooms/beach/palm.svg', x: 76, y: 42, scale: 1.45 },
+      { id: 'beach-can', label: 'Лейка', src: '/rooms/beach/can.svg', x: 58, y: 68, scale: 1.1 },
+      { id: 'beach-ball', label: 'Мяч', src: '/rooms/beach/ball.svg', x: 12, y: 74, scale: 1.1 },
     ],
   },
   {
     id: 'space',
     label: 'Космос',
     backdropSrc: '/avatars/backgrounds/backdrop-space.svg',
+    sceneSrc: '/rooms/scenes/space.svg',
     ambient: 'space',
     items: [
-      { id: 'space-rocket', label: 'Ракета', src: '/rooms/space/rocket.svg' },
-      { id: 'space-star', label: 'Звезда', src: '/rooms/space/star.svg' },
-      { id: 'space-window', label: 'Иллюминатор', src: '/rooms/space/window.svg' },
-      { id: 'space-bot', label: 'Робот', src: '/rooms/space/bot.svg' },
-      { id: 'space-crystal', label: 'Кристалл', src: '/rooms/space/crystal.svg' },
+      { id: 'space-rocket', label: 'Ракета', src: '/rooms/space/rocket.svg', x: 16, y: 46, scale: 1.35 },
+      { id: 'space-star', label: 'Звезда', src: '/rooms/space/star.svg', x: 48, y: 24, scale: 1.1 },
+      { id: 'space-window', label: 'Иллюминатор', src: '/rooms/space/window.svg', x: 70, y: 34, scale: 1.25 },
+      { id: 'space-bot', label: 'Робот', src: '/rooms/space/bot.svg', x: 58, y: 66, scale: 1.2 },
+      { id: 'space-crystal', label: 'Кристалл', src: '/rooms/space/crystal.svg', x: 84, y: 62, scale: 1.15 },
     ],
   },
 ]
