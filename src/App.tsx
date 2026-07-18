@@ -22,6 +22,7 @@ import {
   type StarRules,
 } from './childProgress'
 import { ChildRoomScene } from './ChildRoomScene'
+import { FxBurst } from './FxBurst'
 import { applyXpWithRoomProgress, type RoomProgress } from './rooms'
 import './App.css'
 
@@ -2101,11 +2102,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                         {done}/{plan.length} дел · {totalMinutes} мин · текущие очки {playerScores[playerIndex]?.total || 0}
                       </p>
                     </div>
-                    {fxActive && (
-                      <span className="coin-float" key={playFx.id}>
-                        +{playFx.coins}
-                      </span>
-                    )}
+                    <FxBurst activeKey={fxActive ? playFx.id : null} label={fxActive ? `+${playFx.coins}` : undefined} />
                   </div>
                   <button
                     className="pixel-button wide"
@@ -4449,11 +4446,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
               {done}/{chores.length} дел · {status}
             </p>
           </div>
-          {mobileFx && (
-            <span className="coin-float" key={mobileFx.id}>
-              +{mobileFx.coins}
-            </span>
-          )}
+          <FxBurst activeKey={mobileFx?.id ?? null} label={mobileFx ? `+${mobileFx.coins}` : undefined} />
         </div>
 
         <div className="quest-list mobile-quests">

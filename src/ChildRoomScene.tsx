@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { HeroWalker } from './HeroWalker'
+import { RoomAmbientCanvas } from './RoomAmbientCanvas'
 import type { RoomProgress } from './rooms'
 import {
   acceptNextRoom,
@@ -23,7 +25,12 @@ type ChildRoomSceneProps = {
   starBalance: number
   roomProgress?: Partial<RoomProgress> | null
   onRoomProgressChange: (next: RoomProgress) => void
-  renderAvatar: (props: { avatar: string; avatarUrl?: string; cosmetics?: Record<string, string>; small?: boolean }) => ReactNode
+  renderAvatar: (props: {
+    avatar: string
+    avatarUrl?: string
+    cosmetics?: Record<string, string>
+    small?: boolean
+  }) => ReactNode
   renderStar: () => ReactNode
 }
 
@@ -54,7 +61,9 @@ export function ChildRoomScene({
   const [showOffer, setShowOffer] = useState(false)
   const [sceneKey, setSceneKey] = useState(0)
   const [popItemId, setPopItemId] = useState<string | null>(null)
+  const [parallax, setParallax] = useState({ x: 0, y: 0 })
   const placed = progress.placedItemIds
+  const placedKey = placed.join('|')
 
   useEffect(() => {
     if (progress.offerNextRoom) setShowOffer(true)
@@ -64,9 +73,19 @@ export function ChildRoomScene({
     if (!placed.length) return
     const last = placed[placed.length - 1]
     setPopItemId(last)
-    const timer = window.setTimeout(() => setPopItemId(null), 900)
+    const timer = window.setTimeout(() => setPopItemId(null), 1100)
     return () => window.clearTimeout(timer)
-  }, [placed.join('|')])
+  }, [placedKey, placed])
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      const nx = (event.clientX / Math.max(1, window.innerWidth) - 0.5) * 2
+      const ny = (event.clientY / Math.max(1, window.innerHeight) - 0.5) * 2
+      setParallax({ x: nx * 8, y: ny * 5 })
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [])
 
   const acceptRoom = () => {
     const next = acceptNextRoom(progress)
@@ -83,26 +102,48 @@ export function ChildRoomScene({
   return (
     <div className="child-room-layout">
       <div className={`child-room-stage ambient-${theme.ambient}`} key={sceneKey} data-theme={theme.id}>
-        <div className="child-room-bg" style={{ backgroundImage: `url(${theme.backdropSrc})` }} />
-        <div className="child-room-ambient" aria-hidden>
-          <span className="ambient-particle p1" />
-          <span className="ambient-particle p2" />
-          <span className="ambient-particle p3" />
-          <span className="ambient-particle p4" />
-        </div>
+        <div
+          className="child-room-bg child-room-bg-far"
+          style={{
+            backgroundImage: `url(${theme.backdropSrc})`,
+            transform: `translate(${parallax.x * 0.35}px, ${parallax.y * 0.25}px) scale(1.12)`,
+          }}
+        />
+        <div
+          className="child-room-bg child-room-bg-near"
+          style={{
+            backgroundImage: `url(${theme.backdropSrc})`,
+            transform: `translate(${parallax.x * 0.7}px, ${parallax.y * 0.45}px) scale(1.06)`,
+            opacity: 0.35,
+            mixBlendMode: 'soft-light',
+          }}
+        />
+        <div className="child-room-light-sweep" aria-hidden />
+        <RoomAmbientCanvas ambient={theme.ambient} />
         <div className="child-room-floor" />
         <div className="child-room-items">
           {Array.from({ length: ITEMS_PER_ROOM }, (_, slot) => {
             const itemId = placed[slot]
             const def = itemId ? getRoomItemDef(theme, itemId) : undefined
+            const isNew = popItemId === itemId
             return (
               <div
-                className={`room-item-slot ${def ? 'filled' : 'empty'} ${popItemId === itemId ? 'pop' : ''}`}
+                className={`room-item-slot ${def ? 'filled' : 'empty'} ${isNew ? 'pop' : ''} ${def ? 'idle-float' : ''}`}
                 key={`${theme.id}-slot-${slot}`}
-                style={{ ['--slot' as string]: String(slot) }}
+                style={
+                  def
+                    ? {
+                        animationDelay: `${slot * 180}ms`,
+                        animationDuration: `${2.4 + slot * 0.25}s`,
+                      }
+                    : undefined
+                }
               >
                 {def ? (
-                  <img src={def.src} alt={def.label} title={def.label} />
+                  <>
+                    <img src={def.src} alt={def.label} title={def.label} />
+                    {isNew && <span className="item-sparkle-ring" aria-hidden />}
+                  </>
                 ) : (
                   <span className="room-item-ghost" aria-hidden />
                 )}
@@ -110,16 +151,19 @@ export function ChildRoomScene({
             )
           })}
         </div>
-        <div className="child-room-runner" aria-hidden>
-          <div className="runner-bob">
-            {renderAvatar({ avatar, avatarUrl, cosmetics: wearCosmetics, small: true })}
-          </div>
-        </div>
+        <HeroWalker>
+          {renderAvatar({ avatar, avatarUrl, cosmetics: wearCosmetics, small: true })}
+        </HeroWalker>
         <div className="child-room-badge">
           <strong>{theme.label}</strong>
           <span>
             {placed.length}/{ITEMS_PER_ROOM} предметов
           </span>
+          <div className="room-progress-dots" aria-hidden>
+            {Array.from({ length: ITEMS_PER_ROOM }, (_, i) => (
+              <span key={i} className={i < placed.length ? 'on' : ''} />
+            ))}
+          </div>
         </div>
         {progress.offerNextRoom && !showOffer && (
           <button className="tiny-button room-offer-reopen" type="button" onClick={() => setShowOffer(true)}>
@@ -146,7 +190,7 @@ export function ChildRoomScene({
             </strong>
           </div>
           <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${xpProgress}%` }} />
+            <div className="progress-fill smooth-xp" style={{ width: `${xpProgress}%` }} />
           </div>
           <small>До следующего уровня: {xpNext} XP · предмет в комнату</small>
         </div>
@@ -154,7 +198,7 @@ export function ChildRoomScene({
 
       {showOffer && progress.offerNextRoom && (
         <div className="modal-backdrop room-offer-backdrop" role="dialog" aria-modal="true">
-          <article className="pixel-panel room-offer-modal">
+          <article className="pixel-panel room-offer-modal room-offer-modal-in">
             <p className="eyebrow">Комната собрана!</p>
             <h2>Перейти в новую комнату?</h2>
             <p>

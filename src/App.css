@@ -1,4 +1,4 @@
-.game-shell {
+﻿.game-shell {
   width: min(1180px, calc(100vw - 28px));
   margin: 0 auto;
   padding: 22px 0 44px;
@@ -2059,7 +2059,7 @@ label {
 }
 
 .ceremony-screen {
-  animation: ceremony-pop 700ms steps(4, end);
+  animation: ceremony-pop 720ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .certificate {
@@ -2124,23 +2124,25 @@ label {
     90px 90px,
     120px 120px,
     75px 75px;
-  animation: confetti-rain 900ms steps(5, end) infinite;
-  opacity: 0.8;
+  animation: confetti-rain 1.6s linear infinite;
+  opacity: 0.85;
 }
 
 .ceremony-button {
-  animation: button-glow 900ms steps(2, end) infinite;
+  animation: button-glow 1.4s ease-in-out infinite;
 }
 
 @keyframes ceremony-pop {
   from {
-    filter: saturate(0.4);
-    transform: scale(0.97);
+    filter: saturate(0.55) blur(2px);
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
   }
 
   to {
-    filter: saturate(1);
-    transform: scale(1);
+    filter: saturate(1) blur(0);
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -2164,12 +2166,14 @@ label {
   0%,
   100% {
     box-shadow: 4px 4px 0 var(--ink);
+    transform: translateY(0);
   }
 
   50% {
     box-shadow:
       4px 4px 0 var(--ink),
-      0 0 0 6px var(--sun);
+      0 0 0 8px rgba(255, 215, 106, 0.45);
+    transform: translateY(-1px);
   }
 }
 
@@ -3132,7 +3136,8 @@ label {
   }
 }
 
-/* ===== Animated hero room ===== */
+
+/* ===== Animated hero room (smooth motion) ===== */
 .child-room-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
@@ -3143,67 +3148,54 @@ label {
 
 .child-room-stage {
   position: relative;
-  min-height: 260px;
+  min-height: 280px;
   overflow: hidden;
   border: 4px solid var(--ink);
   background: #1f183d;
   box-shadow: 6px 6px 0 var(--ink);
-  animation: room-scene-in 520ms steps(4, end);
+  animation: room-scene-in 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
 }
 
 .child-room-bg {
   position: absolute;
-  inset: 0;
+  inset: -8%;
   background-size: cover;
   background-position: center;
   image-rendering: pixelated;
-  transform: scale(1.08);
-  filter: saturate(1.15);
+  filter: saturate(1.2) contrast(1.05);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 
-.child-room-ambient {
+.child-room-bg-near {
+  filter: saturate(1.3) blur(0.2px);
+  pointer-events: none;
+}
+
+.child-room-light-sweep {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  overflow: hidden;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.14) 48%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: light-sweep 5.5s ease-in-out infinite;
+  z-index: 1;
+  mix-blend-mode: soft-light;
 }
 
-.ambient-particle {
+.room-ambient-canvas {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 0;
-  background: #fff4bd;
-  opacity: 0.85;
-  animation: ambient-float 3.2s steps(6, end) infinite;
-}
-
-.ambient-particle.p1 { left: 12%; top: 70%; animation-delay: 0s; }
-.ambient-particle.p2 { left: 38%; top: 55%; animation-delay: 0.4s; background: #66e3ff; }
-.ambient-particle.p3 { left: 62%; top: 62%; animation-delay: 0.9s; background: #ff79b8; }
-.ambient-particle.p4 { left: 84%; top: 48%; animation-delay: 1.3s; }
-
-.ambient-ocean .ambient-particle {
-  width: 14px;
-  height: 4px;
-  background: rgba(223, 247, 255, 0.7);
-  animation-name: ambient-wave;
-}
-
-.ambient-space .ambient-particle {
-  width: 4px;
-  height: 4px;
-  background: #fff4bd;
-  animation-name: ambient-twinkle;
-}
-
-.ambient-beach .ambient-particle {
-  background: #ffd76a;
-}
-
-.ambient-castle .ambient-particle {
-  background: #ffd76a;
-  box-shadow: 0 0 0 2px #ff9a5a;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .child-room-floor {
@@ -3211,9 +3203,16 @@ label {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 28%;
-  background: linear-gradient(180deg, transparent, rgba(31, 24, 61, 0.35));
+  height: 30%;
+  background:
+    linear-gradient(180deg, transparent, rgba(31, 24, 61, 0.42)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 250, 240, 0.04) 0 12px,
+      transparent 12px 24px
+    );
   border-top: 3px solid rgba(31, 24, 61, 0.45);
+  z-index: 2;
 }
 
 .child-room-items {
@@ -3225,70 +3224,129 @@ label {
   justify-content: space-between;
   align-items: flex-end;
   gap: 6px;
-  z-index: 2;
+  z-index: 3;
 }
 
 .room-item-slot {
-  width: 52px;
-  height: 52px;
+  position: relative;
+  width: 54px;
+  height: 54px;
   display: grid;
   place-items: center;
   border: 3px dashed rgba(31, 24, 61, 0.35);
-  background: rgba(255, 250, 240, 0.2);
+  background: rgba(255, 250, 240, 0.18);
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 280ms ease,
+    box-shadow 280ms ease;
 }
 
 .room-item-slot.filled {
   border-style: solid;
   border-color: var(--ink);
-  background: rgba(255, 250, 240, 0.72);
+  background: rgba(255, 250, 240, 0.78);
   box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.35);
 }
 
+.room-item-slot.idle-float {
+  animation: item-idle-float 2.8s ease-in-out infinite;
+}
+
 .room-item-slot.pop {
-  animation: item-pop 700ms steps(5, end);
+  animation: item-pop-spring 900ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 5;
 }
 
 .room-item-slot img {
   width: 40px;
   height: 40px;
   image-rendering: pixelated;
+  filter: drop-shadow(0 2px 0 rgba(31, 24, 61, 0.25));
+}
+
+.item-sparkle-ring {
+  position: absolute;
+  inset: -8px;
+  border: 3px solid #ffd76a;
+  border-radius: 50%;
+  animation: sparkle-ring 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
 }
 
 .room-item-ghost {
   width: 22px;
   height: 22px;
-  background: rgba(31, 24, 61, 0.18);
+  background: rgba(31, 24, 61, 0.16);
+  animation: ghost-pulse 2s ease-in-out infinite;
 }
 
-.child-room-runner {
+.hero-walker {
   position: absolute;
   bottom: 10%;
-  left: 8%;
-  z-index: 3;
-  animation: hero-patrol 8s linear infinite;
+  left: 10%;
+  z-index: 4;
+  width: 64px;
+  height: 72px;
+  pointer-events: none;
+  will-change: left, transform;
 }
 
-.runner-bob {
-  animation: hero-bob 360ms steps(2, end) infinite;
+.hero-walker-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 42px;
+  height: 10px;
+  background: radial-gradient(ellipse at center, rgba(31, 24, 61, 0.45), transparent 70%);
+  transform: translateX(-50%);
+  filter: blur(0.5px);
 }
 
-.child-room-runner .avatar-container.small,
-.child-room-runner .pixel-avatar.small {
-  width: 56px;
-  height: 56px;
+.hero-walker-body {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  transform-origin: 50% 85%;
+  will-change: transform;
+}
+
+.hero-walker .avatar-container.small,
+.hero-walker .pixel-avatar.small {
+  width: 58px;
+  height: 58px;
+  filter: drop-shadow(0 3px 0 rgba(31, 24, 61, 0.2));
+}
+
+.hero-walker-dust {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hero-dust-puff {
+  position: absolute;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 250, 240, 0.55);
+  border-radius: 50%;
+  animation: dust-puff 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .child-room-badge {
   position: absolute;
   top: 10px;
   left: 10px;
-  z-index: 4;
+  z-index: 6;
   display: grid;
-  gap: 2px;
+  gap: 4px;
   border: 3px solid var(--ink);
-  background: rgba(255, 250, 240, 0.92);
-  padding: 6px 10px;
+  background: rgba(255, 250, 240, 0.94);
+  padding: 8px 10px;
   box-shadow: 3px 3px 0 var(--ink);
+  backdrop-filter: blur(2px);
+  animation: badge-in 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .child-room-badge strong {
@@ -3301,12 +3359,31 @@ label {
   color: var(--muted);
 }
 
+.room-progress-dots {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.room-progress-dots span {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--ink);
+  background: #fff;
+  transition: background 280ms ease, transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.room-progress-dots span.on {
+  background: var(--sun);
+  transform: scale(1.15);
+}
+
 .room-offer-reopen {
   position: absolute;
   top: 10px;
   right: 10px;
-  z-index: 4;
-  animation: button-glow 900ms steps(2, end) infinite;
+  z-index: 6;
+  animation: button-glow 1.4s ease-in-out infinite;
 }
 
 .room-copy {
@@ -3319,11 +3396,15 @@ label {
   position: absolute;
   right: 14px;
   top: 14px;
-  z-index: 5;
+  z-index: 7;
 }
 
 .child-cabinet-header {
   position: relative;
+}
+
+.smooth-xp {
+  transition: width 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .room-offer-modal {
@@ -3331,6 +3412,10 @@ label {
   display: grid;
   gap: 12px;
   text-align: center;
+}
+
+.room-offer-modal-in {
+  animation: offer-pop 520ms cubic-bezier(0.34, 1.45, 0.64, 1);
 }
 
 .room-offer-actions {
@@ -3341,76 +3426,114 @@ label {
 }
 
 @keyframes room-scene-in {
-  from { opacity: 0.3; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
 }
 
-@keyframes hero-patrol {
-  0% { left: 8%; transform: scaleX(1); }
-  45% { left: 72%; transform: scaleX(1); }
-  50% { left: 72%; transform: scaleX(-1); }
-  95% { left: 8%; transform: scaleX(-1); }
-  100% { left: 8%; transform: scaleX(1); }
+@keyframes light-sweep {
+  0%, 100% { background-position: 120% 0; opacity: 0.35; }
+  45%, 55% { opacity: 0.75; }
+  50% { background-position: -20% 0; }
 }
 
-@keyframes hero-bob {
-  from { transform: translateY(0); }
-  to { transform: translateY(-4px); }
+@keyframes item-pop-spring {
+  0% { transform: scale(0.2) translateY(18px) rotate(-8deg); opacity: 0; }
+  55% { transform: scale(1.18) translateY(-6px) rotate(3deg); opacity: 1; }
+  75% { transform: scale(0.94) translateY(2px) rotate(-1deg); }
+  100% { transform: scale(1) translateY(0) rotate(0); }
 }
 
-@keyframes ambient-float {
-  0% { transform: translateY(0) scale(1); opacity: 0.2; }
-  50% { transform: translateY(-28px) scale(1.2); opacity: 0.9; }
-  100% { transform: translateY(-56px) scale(0.8); opacity: 0; }
+@keyframes item-idle-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
 
-@keyframes ambient-wave {
-  0% { transform: translateX(0); opacity: 0.3; }
-  50% { transform: translateX(18px); opacity: 0.8; }
-  100% { transform: translateX(36px); opacity: 0.2; }
+@keyframes sparkle-ring {
+  0% { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(1.55); opacity: 0; }
 }
 
-@keyframes ambient-twinkle {
-  0%, 100% { opacity: 0.2; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.4); }
+@keyframes ghost-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.08); }
 }
 
-@keyframes item-pop {
-  0% { transform: scale(0.4) translateY(12px); }
-  60% { transform: scale(1.15) translateY(-4px); }
-  100% { transform: scale(1) translateY(0); }
+@keyframes dust-puff {
+  0% { opacity: 0.7; transform: translateY(0) scale(0.6); }
+  100% { opacity: 0; transform: translateY(-14px) scale(1.4); }
+}
+
+@keyframes badge-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes offer-pop {
+  from { opacity: 0; transform: scale(0.9) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* ===== Gameplay FX ===== */
 .player-card {
   position: relative;
+  overflow: visible;
 }
 
 .avatar-celebrate .avatar-container,
 .avatar-celebrate .pixel-avatar {
-  animation: avatar-bounce 520ms steps(4, end);
+  animation: avatar-bounce 620ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.coin-float {
+.fx-burst {
   position: absolute;
-  right: 12px;
-  top: 8px;
+  right: 28px;
+  top: 28px;
+  width: 0;
+  height: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.fx-burst-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
   border: 3px solid var(--ink);
   background: var(--sun);
   color: var(--ink);
   font-weight: 900;
-  padding: 4px 8px;
-  animation: coin-rise 900ms steps(5, end) forwards;
-  z-index: 3;
+  padding: 5px 10px;
+  white-space: nowrap;
+  animation: coin-rise-smooth 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.35);
+}
+
+.fx-spark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--ink);
+  will-change: transform, opacity;
 }
 
 .play-fx-active .progress-fill,
 .hud-pulse .progress-fill {
-  animation: xp-pulse 700ms steps(3, end);
+  animation: xp-pulse 800ms ease-in-out;
 }
 
 .quest.done.quest-spark {
-  animation: quest-done-flash 480ms steps(3, end);
+  animation: quest-done-flash 560ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .ceremony-burst .confetti-layer-2 {
@@ -3418,61 +3541,74 @@ label {
     30% 10%,
     80% 40%,
     55% 70%;
-  animation-duration: 1100ms;
+  animation-duration: 2s;
   opacity: 0.65;
 }
 
 .medal-spin {
-  animation: medal-spin-in 800ms steps(6, end);
+  animation: medal-spin-in 900ms cubic-bezier(0.34, 1.45, 0.64, 1);
 }
 
 @keyframes avatar-bounce {
   0% { transform: scale(1) translateY(0); }
-  40% { transform: scale(1.12) translateY(-8px); }
+  35% { transform: scale(1.14, 0.92) translateY(-10px); }
+  55% { transform: scale(0.96, 1.08) translateY(2px); }
   100% { transform: scale(1) translateY(0); }
 }
 
-@keyframes coin-rise {
-  0% { opacity: 0; transform: translateY(8px) scale(0.8); }
-  20% { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-28px) scale(1.1); }
+@keyframes coin-rise-smooth {
+  0% { opacity: 0; transform: translate(-50%, -20%) scale(0.7); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -140%) scale(1.12); }
 }
 
 @keyframes xp-pulse {
   0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.35); box-shadow: 0 0 0 3px var(--sun); }
+  40% { filter: brightness(1.4); box-shadow: 0 0 0 4px rgba(255, 215, 106, 0.55); }
 }
 
 @keyframes quest-done-flash {
-  0% { box-shadow: 0 0 0 0 var(--aqua); }
-  50% { box-shadow: 0 0 0 6px rgba(102, 227, 255, 0.45); }
-  100% { box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.25); }
+  0% { box-shadow: 0 0 0 0 rgba(102, 227, 255, 0.7); transform: scale(1); }
+  40% { box-shadow: 0 0 0 8px rgba(102, 227, 255, 0.2); transform: scale(1.015); }
+  100% { box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.25); transform: scale(1); }
 }
 
 @keyframes medal-spin-in {
-  0% { transform: scale(0.4) rotate(-20deg); opacity: 0; }
-  70% { transform: scale(1.12) rotate(8deg); opacity: 1; }
+  0% { transform: scale(0.35) rotate(-28deg); opacity: 0; filter: blur(2px); }
+  60% { transform: scale(1.14) rotate(8deg); opacity: 1; filter: blur(0); }
   100% { transform: scale(1) rotate(0deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .child-room-runner,
-  .runner-bob,
-  .ambient-particle,
-  .room-item-slot.pop,
   .child-room-stage,
+  .child-room-light-sweep,
+  .room-item-slot.pop,
+  .room-item-slot.idle-float,
+  .room-item-ghost,
+  .item-sparkle-ring,
   .avatar-celebrate .avatar-container,
   .avatar-celebrate .pixel-avatar,
-  .coin-float,
+  .fx-burst-label,
   .medal-spin,
   .ceremony-screen,
   .confetti,
   .ceremony-button,
-  .room-offer-reopen {
+  .room-offer-reopen,
+  .room-offer-modal-in,
+  .hero-dust-puff {
     animation: none !important;
   }
 
-  .child-room-runner {
-    left: 40%;
+  .child-room-bg,
+  .smooth-xp {
+    transition: none !important;
+  }
+
+  .hero-walker {
+    left: 42% !important;
+  }
+
+  .room-ambient-canvas {
+    display: none;
   }
 }
