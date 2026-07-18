@@ -1496,6 +1496,99 @@ label {
   object-fit: cover;
 }
 
+.level-reward-backdrop {
+  z-index: 70;
+}
+
+.level-reward-modal {
+  width: min(720px, calc(100vw - 28px));
+  max-height: min(780px, calc(100vh - 28px));
+  overflow: auto;
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.level-reward-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.level-reward-card {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  border: 4px solid var(--ink);
+  background: linear-gradient(160deg, #fffaf0, #e8f7ff);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 14px;
+}
+
+.level-reward-card.disabled {
+  opacity: 0.72;
+  background: #f2efe8;
+}
+
+.level-reward-preview {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.level-reward-cosmetic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.level-reward-cosmetic {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  border: 3px solid var(--ink);
+  background: #fffaf0;
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 10px 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.level-reward-cosmetic img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.level-reward-cosmetic:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+@media (max-width: 700px) {
+  .level-reward-choices {
+    grid-template-columns: 1fr;
+  }
+
+  .child-room-level-banner {
+    left: 10px;
+    transform: none;
+    padding: 6px 10px;
+  }
+
+  .child-room-level-banner strong {
+    font-size: 24px;
+  }
+
+  .child-room-badge {
+    top: 58px;
+  }
+}
+
 /* ===== Skill tree (hero focus) ===== */
 .skill-tree-panel {
   grid-column: 1 / -1;
@@ -3836,7 +3929,7 @@ label {
 
 .hero-walker {
   position: absolute;
-  bottom: 30%;
+  bottom: 36%;
   left: 10%;
   z-index: 5;
   width: 78px;
@@ -3888,6 +3981,35 @@ label {
   animation: dust-puff 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+.child-room-level-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 7;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 3px solid var(--ink);
+  background: var(--sun);
+  padding: 8px 16px;
+  box-shadow: 4px 4px 0 var(--ink);
+  animation: badge-in 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.child-room-level-banner span {
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.child-room-level-banner strong {
+  font-size: clamp(28px, 5vw, 40px);
+  line-height: 1;
+  color: var(--ink);
+}
+
 .child-room-badge {
   position: absolute;
   top: 10px;
@@ -3930,6 +4052,14 @@ label {
 .room-progress-dots span.on {
   background: var(--sun);
   transform: scale(1.15);
+}
+
+.room-reward-claim {
+  position: absolute;
+  top: 58px;
+  right: 10px;
+  z-index: 7;
+  animation: badge-in 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .room-offer-reopen {

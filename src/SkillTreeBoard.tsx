@@ -34,8 +34,8 @@ export function SkillTreeBoard({ categoryCounts, renderIcon }: SkillTreeBoardPro
           </p>
         </div>
         <div className="skill-tree-total">
-          <strong>{Object.values(levels).reduce((a, b) => a + b, 0)}</strong>
-          <span>сумма уровней</span>
+          <strong>{lvl}</strong>
+          <span>уровень навыка</span>
         </div>
       </div>
 

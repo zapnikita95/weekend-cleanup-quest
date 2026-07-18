@@ -21,8 +21,16 @@ import {
 import { AchievementCarousel } from './AchievementCarousel'
 import { ChildRoomScene } from './ChildRoomScene'
 import { FxBurst } from './FxBurst'
+import { LevelRewardPicker } from './LevelRewardPicker'
 import { SkillTreeBoard } from './SkillTreeBoard'
-import { applyXpWithRoomProgress, type RoomProgress } from './rooms'
+import {
+  acceptNextRoom,
+  claimNextRoomItem,
+  getPendingRewardLevels,
+  migrateLevelRewardClaims,
+  normalizeRoomProgress,
+  type RoomProgress,
+} from './rooms'
 import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
@@ -2878,10 +2886,9 @@ function ChildProfileManager({
                 const newXp = prevXp + p.xp
                 const newStars = (childProfile.starBalance || 0) + p.stars
                 const remaining = (childProfile.pendingRegulars || []).filter((_,ii) => ii !== i)
-                const { roomProgress } = applyXpWithRoomProgress(prevXp, newXp, childProfile.roomProgress)
                 const lootboxesOn = (childProfile.lootboxRewards || []).length > 0
                 const lootboxCharges = Number(childProfile.lootboxCharges || 0) + (lootboxesOn ? 1 : 0)
-                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining, roomProgress, lootboxCharges })
+                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining, lootboxCharges })
               }}>Подтвердить</button>
             </div>
           ))}
@@ -2908,17 +2915,25 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const [status, setStatus] = useState('Загружаю кабинет...')
   const [activeGameId, setActiveGameId] = useState('')
   const [cabinetPanel, setCabinetPanel] = useState<'rewards' | 'history' | 'stars'>('history')
-  const [showCosmeticChoice, setShowCosmeticChoice] = useState(false)
-  const [dismissedCosmeticChoice, setDismissedCosmeticChoice] = useState('')
+  const [showLevelReward, setShowLevelReward] = useState(false)
+  const [dismissedRewardKey, setDismissedRewardKey] = useState('')
 
   const loadProfile = useCallback(async () => {
     try {
       const result = await api<{ profile: ChildProfile; games: GameRecord[] }>(`/api/child-profiles/${profileId}`)
       const prof = result.profile
-      setProfile(prof)
+      const claims = migrateLevelRewardClaims(prof)
+      const needsMigrate = !Array.isArray(prof.levelRewardClaims) || !prof.levelRewardClaims.length
+      setProfile(needsMigrate && claims.length ? { ...prof, levelRewardClaims: claims } : prof)
       setGames(result.games)
       setStatus('')
       setActiveGameId('')
+      if (needsMigrate && claims.length) {
+        void api(`/api/child-profiles/${profileId}`, {
+          method: 'POST',
+          body: JSON.stringify({ levelRewardClaims: claims }),
+        }).catch(() => undefined)
+      }
 
       // Show current active game if any
       try {
@@ -2966,15 +2981,12 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
 
   useEffect(() => {
     if (!profile) return
-    const currentLevel = getLevelFromXp(profile.xp || 0)
-    const claimedLevels = new Set(profile.cosmeticChoiceLevels || [])
-    const pendingLevel = cosmeticUnlocks.find(({ minLevel }) => currentLevel >= minLevel && !claimedLevels.has(minLevel))?.minLevel || 0
-    const hasRemainingCosmetics = cosmeticUnlocks.some(({ item }) => !(profile.unlockedCosmetics || []).includes(item))
-    const choiceKey = `${profile.id}:${pendingLevel}:${(profile.unlockedCosmetics || []).join('|')}`
-    if (pendingLevel && hasRemainingCosmetics && dismissedCosmeticChoice !== choiceKey) {
-      setShowCosmeticChoice(true)
-    }
-  }, [dismissedCosmeticChoice, profile])
+    const claims = migrateLevelRewardClaims(profile)
+    const pending = getPendingRewardLevels(profile.xp || 0, claims)
+    if (!pending.length) return
+    const rewardKey = `${profile.id}:${pending.join(',')}`
+    if (dismissedRewardKey !== rewardKey) setShowLevelReward(true)
+  }, [dismissedRewardKey, profile])
 
   if (!profile) {
     return (
@@ -2998,13 +3010,19 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
   const xpProgress = Math.min(100, Math.max(0, Math.floor(((xpCurrent - xpLevelStart) / Math.max(1, xpLevelEnd - xpLevelStart)) * 100)))
   const availableRewards = profile.rewards.filter((reward) => reward.label.trim())
   const equippedCosmetics = profile.equippedCosmetics || {}
-  const claimedChoiceLevels = new Set(profile.cosmeticChoiceLevels || [])
-  const pendingCosmeticLevel = cosmeticUnlocks.find(({ minLevel }) => xpLevel >= minLevel && !claimedChoiceLevels.has(minLevel))?.minLevel || 0
-  const remainingCosmetics = cosmeticUnlocks
-    .filter(({ item, minLevel }) => minLevel <= pendingCosmeticLevel && !(profile.unlockedCosmetics || []).includes(item))
-    .map(({ item, slot }) => ({ item, slot }))
-  const cosmeticChoiceKey = `${profile.id}:${pendingCosmeticLevel}:${(profile.unlockedCosmetics || []).join('|')}`
-  const shouldOfferCosmetic = pendingCosmeticLevel > 0 && remainingCosmetics.length > 0
+  const levelRewardClaims = migrateLevelRewardClaims(profile)
+  const pendingRewardLevels = getPendingRewardLevels(xpCurrent, levelRewardClaims)
+  const pendingRewardLevel = pendingRewardLevels[0] || 0
+  const rewardChoiceKey = `${profile.id}:${pendingRewardLevels.join(',')}`
+  const roomNeedsAdvance = normalizeRoomProgress(profile.roomProgress).offerNextRoom
+  const rewardCosmetics = cosmeticUnlocks
+    .filter(({ item }) => !(profile.unlockedCosmetics || []).includes(item))
+    .map(({ item, slot, minLevel }) => ({
+      item,
+      slot,
+      minLevel,
+      label: cosmeticItemLabels[item] || item,
+    }))
   const maxZonesInQuest = games.reduce((max, game) => {
     const counts = computeCategoryCountsFromChores(game.chores || [])
     return Math.max(max, Object.values(counts).filter((count) => count > 0).length)
@@ -3037,14 +3055,39 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
       .map((achievement) => achievement.id),
   ])
 
-  const chooseCosmetic = async (item: string, slot: string) => {
-    if (!pendingCosmeticLevel) return
+  const claimRoomReward = async () => {
+    if (!pendingRewardLevel) return
+    const granted = claimNextRoomItem(profile.roomProgress)
+    if (!granted) {
+      setStatus('Сначала перейди в новую комнату — или возьми одежду.')
+      return
+    }
+    const nextClaims = [
+      ...levelRewardClaims,
+      { level: pendingRewardLevel, kind: 'room' as const, itemId: granted.item.id },
+    ]
+    setShowLevelReward(false)
+    await saveProfilePatch({ roomProgress: granted.roomProgress, levelRewardClaims: nextClaims })
+    setStatus(`${granted.item.label} появился в комнате!`)
+  }
+
+  const claimCosmeticReward = async (item: string, slot: string) => {
+    if (!pendingRewardLevel) return
     const unlockedCosmetics = Array.from(new Set([...(profile.unlockedCosmetics || []), item]))
-    const cosmeticChoiceLevels = Array.from(new Set([...(profile.cosmeticChoiceLevels || []), pendingCosmeticLevel]))
-    const equippedCosmetics = { ...(profile.equippedCosmetics || {}), [slot]: item }
-    setShowCosmeticChoice(false)
-    await saveProfilePatch({ unlockedCosmetics, cosmeticChoiceLevels, equippedCosmetics })
-    setStatus(`${cosmeticItemLabels[item] || item} добавлен к аватарке!`)
+    const cosmeticChoiceLevels = Array.from(new Set([...(profile.cosmeticChoiceLevels || []), pendingRewardLevel]))
+    const nextEquipped = { ...(profile.equippedCosmetics || {}), [slot]: item }
+    const nextClaims = [
+      ...levelRewardClaims,
+      { level: pendingRewardLevel, kind: 'cosmetic' as const, itemId: item },
+    ]
+    setShowLevelReward(false)
+    await saveProfilePatch({
+      unlockedCosmetics,
+      cosmeticChoiceLevels,
+      equippedCosmetics: nextEquipped,
+      levelRewardClaims: nextClaims,
+    })
+    setStatus(`${cosmeticItemLabels[item] || item} надет на персонажа!`)
   }
 
   const changeProgressionAvatar = async (avatar: string) => {
@@ -3069,6 +3112,8 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
             xpProgress={xpProgress}
             xpNext={xpNext}
             starBalance={profile.starBalance}
+            pendingRewards={pendingRewardLevels.length}
+            onClaimRewards={() => setShowLevelReward(true)}
             roomProgress={profile.roomProgress}
             onRoomProgressChange={(next: RoomProgress) => {
               void saveProfilePatch({ roomProgress: next })
@@ -3081,7 +3126,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
               <button className="tiny-button" type="button">Снаряжение</button>
               <div className="avatar-hover-card">
                 <strong>Прокачка персонажа</strong>
-                <p>Аксессуары открываются за уровни. Комната растёт отдельно — предметы появляются за каждый новый уровень.</p>
+                <p>За каждый уровень — один выбор: вещь в комнату или одежда на персонажа. Можно взять позже.</p>
                 {profile.avatarUrl && (
                   <label>
                     Персонаж для прокачки
@@ -3114,41 +3159,36 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                     )
                   })}
                 </div>
-                {shouldOfferCosmetic && (
-                  <button className="tiny-button" type="button" onClick={() => setShowCosmeticChoice(true)}>
-                    Выбрать новый предмет
+                {pendingRewardLevels.length > 0 && (
+                  <button className="tiny-button" type="button" onClick={() => setShowLevelReward(true)}>
+                    Выбрать награды · {pendingRewardLevels.length}
                   </button>
                 )}
-                {!profile.unlockedCosmetics?.length && <small>Первый аксессуар откроется на 2 уровне.</small>}
+                {!profile.unlockedCosmetics?.length && pendingRewardLevels.length === 0 && (
+                  <small>С 2 уровня можно выбрать одежду или предмет для комнаты.</small>
+                )}
               </div>
             </div>
           </div>
         </div>
       </header>
 
-      {showCosmeticChoice && shouldOfferCosmetic && (
-        <div className="modal-backdrop cosmetic-choice-backdrop">
-          <article className="pixel-panel cosmetic-choice-modal">
-            <button className="modal-close-button" type="button" onClick={() => {
-              setDismissedCosmeticChoice(cosmeticChoiceKey)
-              setShowCosmeticChoice(false)
-            }}>×</button>
-            <p className="eyebrow">Новый уровень</p>
-            <h2>Выбери предмет для аватарки</h2>
-            <p className="hint">Этот выбор сохранится. Уже выбранные предметы второй раз не появляются.</p>
-            <div className="cosmetic-choice-grid">
-              {remainingCosmetics.map(({ item, slot }) => (
-                <button className="cosmetic-choice-card" key={item} type="button" onClick={() => chooseCosmetic(item, slot)}>
-                  <span className={`cosmetic-choice-preview ${slot}`}>
-                    <img src={slot === 'backdrop' ? `/avatars/backgrounds/${item}.svg` : `/avatars/accessories/${item}.svg`} alt="" />
-                  </span>
-                  <strong>{cosmeticItemLabels[item] || item}</strong>
-                  <small>{cosmeticSlotLabels[slot] || slot}</small>
-                </button>
-              ))}
-            </div>
-          </article>
-        </div>
+      {showLevelReward && pendingRewardLevel > 0 && (
+        <LevelRewardPicker
+          level={pendingRewardLevel}
+          roomProgress={profile.roomProgress}
+          cosmetics={rewardCosmetics}
+          roomNeedsAdvance={roomNeedsAdvance}
+          onPickRoom={() => void claimRoomReward()}
+          onPickCosmetic={(item, slot) => void claimCosmeticReward(item, slot)}
+          onAdvanceRoom={() => {
+            void saveProfilePatch({ roomProgress: acceptNextRoom(profile.roomProgress) })
+          }}
+          onLater={() => {
+            setDismissedRewardKey(rewardChoiceKey)
+            setShowLevelReward(false)
+          }}
+        />
       )}
 
       <article className="pixel-panel child-goal-card">
@@ -3234,11 +3274,11 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                 { method: 'POST', body: JSON.stringify({}) },
               )
               setProfile(result.profile)
-              const granted =
+              const leveled =
                 getLevelFromXp(result.profile.xp || 0) > getLevelFromXp(profile.xp || 0)
-                  ? ' Новый предмет в комнате!'
+                  ? ' Новый уровень — выбери комнату или одежду!'
                   : ''
-              setStatus(`${result.note || `Выпало: ${result.reward}`}!${granted}`)
+              setStatus(`${result.note || `Выпало: ${result.reward}`}!${leveled}`)
             } catch (error) {
               setStatus(error instanceof Error ? error.message : 'Лутбокс недоступен')
             }

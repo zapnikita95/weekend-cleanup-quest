@@ -176,32 +176,7 @@ export const getRoomTheme = (roomIndex: number): RoomThemeDef => {
 export const getRoomItemDef = (theme: RoomThemeDef, itemId: string): RoomItemDef | undefined =>
   theme.items.find((item) => item.id === itemId)
 
-/** Grant one themed item per level gained; pause at 5 until next room accepted. */
-export const applyRoomProgressOnLevelUp = (
-  prevXp: number,
-  nextXp: number,
-  progress?: Partial<RoomProgress> | null,
-): RoomProgress => {
-  const result = normalizeRoomProgress(progress)
-  const prevLevel = getLevelFromXp(Math.max(0, prevXp))
-  const nextLevel = getLevelFromXp(Math.max(0, nextXp))
-  if (nextLevel <= prevLevel) return result
-  if (result.offerNextRoom || result.placedItemIds.length >= ITEMS_PER_ROOM) return result
-
-  const levelsGained = nextLevel - prevLevel
-  for (let i = 0; i < levelsGained; i++) {
-    if (result.placedItemIds.length >= ITEMS_PER_ROOM) break
-    const theme = getRoomTheme(result.roomIndex)
-    const nextItem = theme.items.find((item) => !result.placedItemIds.includes(item.id))
-    if (!nextItem) break
-    result.placedItemIds = [...result.placedItemIds, nextItem.id]
-    if (result.placedItemIds.length >= ITEMS_PER_ROOM) {
-      result.offerNextRoom = true
-      break
-    }
-  }
-  return result
-}
+export type LevelRewardClaim = { level: number; kind: 'room' | 'cosmetic'; itemId: string }
 
 export const acceptNextRoom = (progress?: Partial<RoomProgress> | null): RoomProgress => {
   const current = normalizeRoomProgress(progress)
@@ -218,18 +193,72 @@ export const declineNextRoomOffer = (progress?: Partial<RoomProgress> | null): R
   return { ...current, offerNextRoom: true }
 }
 
-/** Apply XP delta and return updated room progress (and whether a new item was granted). */
-export const applyXpWithRoomProgress = (
-  prevXp: number,
-  nextXp: number,
+/** Peek next furniture for current room (null if full / waiting for next room). */
+export const peekNextRoomItem = (progress?: Partial<RoomProgress> | null): RoomItemDef | null => {
+  const current = normalizeRoomProgress(progress)
+  if (current.offerNextRoom || current.placedItemIds.length >= ITEMS_PER_ROOM) return null
+  const theme = getRoomTheme(current.roomIndex)
+  return theme.items.find((item) => !current.placedItemIds.includes(item.id)) || null
+}
+
+/** Place next furniture into the room for a claimed level reward. */
+export const claimNextRoomItem = (
   progress?: Partial<RoomProgress> | null,
-): { roomProgress: RoomProgress; grantedItemIds: string[]; leveledUp: boolean } => {
-  const before = normalizeRoomProgress(progress)
-  const roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, before)
-  const grantedItemIds = roomProgress.placedItemIds.filter((id) => !before.placedItemIds.includes(id))
+): { roomProgress: RoomProgress; item: RoomItemDef } | null => {
+  const current = normalizeRoomProgress(progress)
+  if (current.offerNextRoom || current.placedItemIds.length >= ITEMS_PER_ROOM) return null
+  const theme = getRoomTheme(current.roomIndex)
+  const item = theme.items.find((entry) => !current.placedItemIds.includes(entry.id))
+  if (!item) return null
+  const placedItemIds = [...current.placedItemIds, item.id]
   return {
-    roomProgress,
-    grantedItemIds,
-    leveledUp: getLevelFromXp(nextXp) > getLevelFromXp(prevXp),
+    item,
+    roomProgress: {
+      ...current,
+      placedItemIds,
+      offerNextRoom: placedItemIds.length >= ITEMS_PER_ROOM,
+    },
   }
+}
+
+export const migrateLevelRewardClaims = (profile: {
+  levelRewardClaims?: LevelRewardClaim[] | null
+  cosmeticChoiceLevels?: number[] | null
+  roomProgress?: Partial<RoomProgress> | null
+}): LevelRewardClaim[] => {
+  if (Array.isArray(profile.levelRewardClaims) && profile.levelRewardClaims.length) {
+    return profile.levelRewardClaims.map((claim) => ({
+      level: Number(claim.level),
+      kind: claim.kind === 'cosmetic' ? 'cosmetic' : 'room',
+      itemId: String(claim.itemId || 'legacy'),
+    }))
+  }
+  const claims: LevelRewardClaim[] = []
+  const usedLevels = new Set<number>()
+  for (const level of profile.cosmeticChoiceLevels || []) {
+    const lvl = Number(level)
+    if (!Number.isFinite(lvl) || usedLevels.has(lvl)) continue
+    usedLevels.add(lvl)
+    claims.push({ level: lvl, kind: 'cosmetic', itemId: 'legacy' })
+  }
+  const placed = normalizeRoomProgress(profile.roomProgress).placedItemIds
+  let cursor = 2
+  for (const itemId of placed) {
+    while (usedLevels.has(cursor)) cursor++
+    usedLevels.add(cursor)
+    claims.push({ level: cursor, kind: 'room', itemId })
+    cursor++
+  }
+  return claims
+}
+
+/** Levels 2..current that still need a reward pick (room OR cosmetic). */
+export const getPendingRewardLevels = (xp: number, claims: LevelRewardClaim[]): number[] => {
+  const level = getLevelFromXp(Math.max(0, xp))
+  const claimed = new Set(claims.map((claim) => claim.level))
+  const pending: number[] = []
+  for (let lvl = 2; lvl <= level; lvl++) {
+    if (!claimed.has(lvl)) pending.push(lvl)
+  }
+  return pending
 }

@@ -45,6 +45,8 @@ export type ChildProfile = {
   equippedCosmetics?: Record<string, string>  // e.g. { hat: 'crown', cloak: 'blue', pet: 'slime' }
   unlockedCosmetics?: string[]
   cosmeticChoiceLevels?: number[]
+  /** Per level-up: player picks room item OR cosmetic; unclaimed stay available later */
+  levelRewardClaims?: Array<{ level: number; kind: 'room' | 'cosmetic'; itemId: string }>
   /** Animated hero room: sequential themes, up to 5 items, then offer next room */
   roomProgress?: {
     roomIndex: number

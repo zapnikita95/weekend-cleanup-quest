@@ -23,6 +23,8 @@ type ChildRoomSceneProps = {
   xpProgress: number
   xpNext: number
   starBalance: number
+  pendingRewards?: number
+  onClaimRewards?: () => void
   roomProgress?: Partial<RoomProgress> | null
   onRoomProgressChange: (next: RoomProgress) => void
   renderAvatar: (props: {
@@ -46,6 +48,8 @@ export function ChildRoomScene({
   xpProgress,
   xpNext,
   starBalance,
+  pendingRewards = 0,
+  onClaimRewards,
   roomProgress,
   onRoomProgressChange,
   renderAvatar,
@@ -151,10 +155,15 @@ export function ChildRoomScene({
           {renderAvatar({ avatar, avatarUrl, cosmetics: wearCosmetics, small: true })}
         </HeroWalker>
 
+        <div className="child-room-level-banner" aria-label={`Уровень ${xpLevel}`}>
+          <span>Уровень</span>
+          <strong>{xpLevel}</strong>
+        </div>
+
         <div className="child-room-badge">
           <strong>{theme.label}</strong>
           <span>
-            {placed.length}/{ITEMS_PER_ROOM} предметов · Ур.{xpLevel}
+            {placed.length}/{ITEMS_PER_ROOM} предметов
           </span>
           <div className="room-progress-dots" aria-hidden>
             {Array.from({ length: ITEMS_PER_ROOM }, (_, i) => (
@@ -174,9 +183,9 @@ export function ChildRoomScene({
               <h1>{name}</h1>
             </div>
           </div>
-          <div className="header-xp-bar room-hud-xp" aria-label={`Опыт ${xpCurrent} из ${xpLevelEnd}`}>
+          <div className="header-xp-bar room-hud-xp" aria-label={`Уровень ${xpLevel}, опыт ${xpCurrent} из ${xpLevelEnd}`}>
             <div className="header-xp-copy">
-              <span>Опыт</span>
+              <span>Уровень {xpLevel}</span>
               <strong>
                 {xpCurrent} / {xpLevelEnd} XP
               </strong>
@@ -184,9 +193,15 @@ export function ChildRoomScene({
             <div className="progress-track">
               <div className="progress-fill smooth-xp" style={{ width: `${xpProgress}%` }} />
             </div>
-            <small>До уровня: {xpNext} XP → новый предмет</small>
+            <small>До ур. {xpLevel + 1}: {xpNext} XP — выбери комнату или одежду</small>
           </div>
         </div>
+
+        {pendingRewards > 0 && onClaimRewards && (
+          <button className="tiny-button room-reward-claim" type="button" onClick={onClaimRewards}>
+            Есть награды · {pendingRewards}
+          </button>
+        )}
 
         {progress.offerNextRoom && !showOffer && (
           <button className="tiny-button room-offer-reopen" type="button" onClick={() => setShowOffer(true)}>

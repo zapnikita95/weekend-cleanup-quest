@@ -47,24 +47,59 @@ const themeItemsForIndex = (roomIndex) => {
   return ROOM_ITEM_IDS[themeId] || ROOM_ITEM_IDS.room
 }
 
-export const applyRoomProgressOnLevelUp = (prevXp, nextXp, progress) => {
-  const result = normalizeRoomProgress(progress)
-  const prevLevel = getLevelFromXp(Math.max(0, prevXp))
-  const nextLevel = getLevelFromXp(Math.max(0, nextXp))
-  if (nextLevel <= prevLevel) return result
-  if (result.offerNextRoom || result.placedItemIds.length >= ITEMS_PER_ROOM) return result
+/** @deprecated XP no longer auto-fills the room — player claims room OR cosmetic per level. */
+export const applyRoomProgressOnLevelUp = (_prevXp, _nextXp, progress) => normalizeRoomProgress(progress)
 
-  const levelsGained = nextLevel - prevLevel
-  for (let i = 0; i < levelsGained; i++) {
-    if (result.placedItemIds.length >= ITEMS_PER_ROOM) break
-    const items = themeItemsForIndex(result.roomIndex)
-    const nextItem = items.find((id) => !result.placedItemIds.includes(id))
-    if (!nextItem) break
-    result.placedItemIds = [...result.placedItemIds, nextItem]
-    if (result.placedItemIds.length >= ITEMS_PER_ROOM) {
-      result.offerNextRoom = true
-      break
-    }
+export const claimNextRoomItem = (progress) => {
+  const current = normalizeRoomProgress(progress)
+  if (current.offerNextRoom || current.placedItemIds.length >= ITEMS_PER_ROOM) return null
+  const items = themeItemsForIndex(current.roomIndex)
+  const itemId = items.find((id) => !current.placedItemIds.includes(id))
+  if (!itemId) return null
+  const placedItemIds = [...current.placedItemIds, itemId]
+  return {
+    itemId,
+    roomProgress: {
+      ...current,
+      placedItemIds,
+      offerNextRoom: placedItemIds.length >= ITEMS_PER_ROOM,
+    },
   }
-  return result
+}
+
+export const migrateLevelRewardClaims = (profile) => {
+  if (Array.isArray(profile?.levelRewardClaims) && profile.levelRewardClaims.length) {
+    return profile.levelRewardClaims.map((claim) => ({
+      level: Number(claim.level),
+      kind: claim.kind === 'cosmetic' ? 'cosmetic' : 'room',
+      itemId: String(claim.itemId || 'legacy'),
+    }))
+  }
+  const claims = []
+  const usedLevels = new Set()
+  for (const level of profile?.cosmeticChoiceLevels || []) {
+    const lvl = Number(level)
+    if (!Number.isFinite(lvl) || usedLevels.has(lvl)) continue
+    usedLevels.add(lvl)
+    claims.push({ level: lvl, kind: 'cosmetic', itemId: 'legacy' })
+  }
+  const placed = normalizeRoomProgress(profile?.roomProgress).placedItemIds
+  let cursor = 2
+  for (const itemId of placed) {
+    while (usedLevels.has(cursor)) cursor++
+    usedLevels.add(cursor)
+    claims.push({ level: cursor, kind: 'room', itemId })
+    cursor++
+  }
+  return claims
+}
+
+export const getPendingRewardLevels = (xp, claims) => {
+  const level = getLevelFromXp(Math.max(0, xp))
+  const claimed = new Set((claims || []).map((claim) => claim.level))
+  const pending = []
+  for (let lvl = 2; lvl <= level; lvl++) {
+    if (!claimed.has(lvl)) pending.push(lvl)
+  }
+  return pending
 }

@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { basename, extname, join, normalize } from 'node:path'
-import { applyRoomProgressOnLevelUp, defaultRoomProgress, normalizeRoomProgress } from './rooms-shared.mjs'
+import { defaultRoomProgress, migrateLevelRewardClaims, normalizeRoomProgress } from './rooms-shared.mjs'
 
 const port = Number(process.env.PORT || 4173)
 const root = join(process.cwd(), 'dist')
@@ -174,6 +174,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   equippedCosmetics: {},
   unlockedCosmetics: [],
   cosmeticChoiceLevels: [],
+  levelRewardClaims: [],
   roomProgress: defaultRoomProgress(),
   regularTasks: [],
   lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
@@ -222,6 +223,22 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
   equippedCosmetics: profile.equippedCosmetics && typeof profile.equippedCosmetics === 'object' ? profile.equippedCosmetics : fallback.equippedCosmetics || {},
   unlockedCosmetics: Array.isArray(profile.unlockedCosmetics) ? profile.unlockedCosmetics : fallback.unlockedCosmetics || [],
   cosmeticChoiceLevels: Array.isArray(profile.cosmeticChoiceLevels) ? profile.cosmeticChoiceLevels.map(Number).filter(Number.isFinite) : fallback.cosmeticChoiceLevels || [],
+  levelRewardClaims: Array.isArray(profile.levelRewardClaims)
+    ? profile.levelRewardClaims
+        .map((claim) => ({
+          level: Number(claim.level),
+          kind: claim.kind === 'cosmetic' ? 'cosmetic' : 'room',
+          itemId: String(claim.itemId || 'legacy'),
+        }))
+        .filter((claim) => Number.isFinite(claim.level) && claim.level >= 2)
+    : Array.isArray(fallback.levelRewardClaims)
+      ? fallback.levelRewardClaims
+      : migrateLevelRewardClaims({
+          cosmeticChoiceLevels: Array.isArray(profile.cosmeticChoiceLevels)
+            ? profile.cosmeticChoiceLevels
+            : fallback.cosmeticChoiceLevels,
+          roomProgress: profile.roomProgress ?? fallback.roomProgress,
+        }),
   roomProgress: normalizeRoomProgress(profile.roomProgress ?? fallback.roomProgress),
   regularTasks: Array.isArray(profile.regularTasks) ? profile.regularTasks.map(t => ({
     id: String(t.id || makeId()),
@@ -299,7 +316,6 @@ const applyChildOutcome = (db, outcome, gameId) => {
 
   const prevXp = Number(previous.xp || 0)
   const nextXp = prevXp + (outcome.coins ? Math.floor(outcome.coins * 0.4) : 20)
-  const roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
   const lootboxesEnabled = Array.isArray(previous.lootboxRewards) && previous.lootboxRewards.length > 0
   const lootboxCharges = Number(previous.lootboxCharges || 0) + (lootboxesEnabled ? 1 : 0)
 
@@ -311,7 +327,6 @@ const applyChildOutcome = (db, outcome, gameId) => {
     achievementIds: [...nextAchievementIds],
     skillLevels: newSkillLevels,
     xp: nextXp,
-    roomProgress,
     lootboxCharges,
     ledger: nextLedger,
     updatedAt: new Date().toISOString(),
@@ -908,12 +923,9 @@ const upsertChildProfile = async (request, response) => {
 
   const prevXp = Number(previous.xp || 0)
   const nextXp = body.xp !== undefined ? Number(body.xp) : prevXp
-  let roomProgress = body.roomProgress !== undefined
+  const roomProgress = body.roomProgress !== undefined
     ? normalizeRoomProgress(body.roomProgress)
     : previous.roomProgress
-  if (body.xp !== undefined && body.roomProgress === undefined) {
-    roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
-  }
 
   const profile = sanitizeChildProfile(
     {
@@ -972,15 +984,10 @@ const patchChildProfile = async (profileId, request, response) => {
     return
   }
 
-  const prevXp = Number(previous.xp || 0)
-  const nextXp = body.xp !== undefined ? Number(body.xp) : prevXp
-  let roomProgress = body.roomProgress !== undefined
+  const nextXp = body.xp !== undefined ? Number(body.xp) : Number(previous.xp || 0)
+  const roomProgress = body.roomProgress !== undefined
     ? normalizeRoomProgress(body.roomProgress)
     : previous.roomProgress
-
-  if (body.xp !== undefined && body.roomProgress === undefined) {
-    roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
-  }
 
   // Child patch cannot mint free lootboxes — only openLootbox endpoint spends them.
   const profile = sanitizeChildProfile(
@@ -1040,13 +1047,11 @@ const openChildLootbox = async (profileId, request, response) => {
     note += ' (Зелье: +10% к следующей игре)'
   }
 
-  const roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
   const profile = sanitizeChildProfile(
     {
       ...previous,
       xp: nextXp,
       starBalance,
-      roomProgress,
       lootboxCharges: charges - 1,
       updatedAt: new Date().toISOString(),
     },
