@@ -2859,7 +2859,9 @@ function ChildProfileManager({
             </button>
           </div>
         )}
-        <small className="hint lootbox-note">При включении автоматически выбираются опыт, звезда и зелье. Можно отметить «Другое» или добавить несколько своих вариантов.</small>
+        <small className="hint lootbox-note">
+          Лутбоксы не висят бесплатно: ребёнок получает 1 заряд за завершённый квест и 1 заряд за каждое подтверждённое регулярное дело. При включении по умолчанию: опыт, звезда и зелье.
+        </small>
       </section>
       {childProfile && childProfile.pendingRegulars && childProfile.pendingRegulars.length > 0 && (
         <section className="child-profile-section">
@@ -2873,7 +2875,9 @@ function ChildProfileManager({
                 const newStars = (childProfile.starBalance || 0) + p.stars
                 const remaining = (childProfile.pendingRegulars || []).filter((_,ii) => ii !== i)
                 const { roomProgress } = applyXpWithRoomProgress(prevXp, newXp, childProfile.roomProgress)
-                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining, roomProgress })
+                const lootboxesOn = (childProfile.lootboxRewards || []).length > 0
+                const lootboxCharges = Number(childProfile.lootboxCharges || 0) + (lootboxesOn ? 1 : 0)
+                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining, roomProgress, lootboxCharges })
               }}>Подтвердить</button>
             </div>
           ))}
@@ -3196,34 +3200,37 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
         </article>
       </section>
 
-      <article className="pixel-panel child-lootbox-card">
+      <article className={`pixel-panel child-lootbox-card ${(profile.lootboxCharges || 0) < 1 ? 'lootbox-locked' : ''}`}>
         <img src="/avatars/lootbox.svg" alt="" />
         <div>
-          <p className="eyebrow">Лутбокс</p>
-          <h2>Сундук с бонусом</h2>
-          <p className="hint">Выполни регулярные дела или набери очки в квесте — открой сундук.</p>
+          <p className="eyebrow">Лутбокс · {Math.max(0, profile.lootboxCharges || 0)} шт.</p>
+          <h2>{(profile.lootboxCharges || 0) > 0 ? 'Сундук готов!' : 'Сундук закрыт'}</h2>
+          <p className="hint">
+            Лутбокс выдаётся за завершённый квест или за регулярное дело, которое подтвердил родитель. Без заряда открыть нельзя.
+          </p>
         </div>
-        <button className="pixel-button" onClick={async () => {
-          const rewards = profile.lootboxRewards || ['+20xp', '+1 звезда', 'potion']
-          const pick = rewards[Math.floor(Math.random()*rewards.length)]
-          let msg = `Выпало: ${pick}!`
-          const prevXp = profile.xp || 0
-          let newXp = prevXp
-          let newStars = profile.starBalance || 0
-          if (pick.includes('xp')) {
-            const amt = parseInt(pick) || 20; newXp += amt
-          } else if (pick.includes('звезда')) {
-            const amt = parseInt(pick) || 1; newStars += amt
-          } else if (pick === 'potion') {
-            msg += ' (Зелье: +10% к следующей игре)'
-          }
-          const { roomProgress, grantedItemIds } = applyXpWithRoomProgress(prevXp, newXp, profile.roomProgress)
-          if (grantedItemIds.length) msg += ' Новый предмет в комнате!'
-          const newP = {...profile, xp: newXp, starBalance: newStars, roomProgress}
-          setProfile(newP as any)
-          await api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({xp: newXp, starBalance: newStars, roomProgress})}).catch(()=>{})
-          setStatus(msg)
-        }}>Открыть лутбокс</button>
+        <button
+          className="pixel-button"
+          disabled={(profile.lootboxCharges || 0) < 1 || !(profile.lootboxRewards || []).length}
+          onClick={async () => {
+            try {
+              const result = await api<{ profile: ChildProfile; reward: string; note: string }>(
+                `/api/child-profiles/${profileId}/lootbox`,
+                { method: 'POST', body: JSON.stringify({}) },
+              )
+              setProfile(result.profile)
+              const granted =
+                getLevelFromXp(result.profile.xp || 0) > getLevelFromXp(profile.xp || 0)
+                  ? ' Новый предмет в комнате!'
+                  : ''
+              setStatus(`${result.note || `Выпало: ${result.reward}`}!${granted}`)
+            } catch (error) {
+              setStatus(error instanceof Error ? error.message : 'Лутбокс недоступен')
+            }
+          }}
+        >
+          {(profile.lootboxCharges || 0) > 0 ? 'Открыть лутбокс' : 'Нужен заряд'}
+        </button>
       </article>
 
       <section className="setup-grid child-cabinet-grid">

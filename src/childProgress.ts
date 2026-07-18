@@ -54,6 +54,8 @@ export type ChildProfile = {
   }
   regularTasks?: Array<{ id: string; label: string; xp: number; stars: number }>
   lootboxRewards?: string[]  // e.g. ['+30xp', '+2stars', 'potion']
+  /** Unopened lootboxes earned by quests / confirmed regulars. Never free. */
+  lootboxCharges?: number
   pendingRegulars?: Array<{ id: string; label: string; xp: number; stars: number; doneAt?: string }>
   createdAt: string
   updatedAt: string

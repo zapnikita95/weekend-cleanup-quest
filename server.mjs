@@ -177,6 +177,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   roomProgress: defaultRoomProgress(),
   regularTasks: [],
   lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
+  lootboxCharges: 0,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 })
@@ -228,6 +229,7 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
     stars: Number(t.stars || 1),
   })) : fallback.regularTasks || [],
   lootboxRewards: Array.isArray(profile.lootboxRewards) ? profile.lootboxRewards.map(String) : fallback.lootboxRewards || ['+20xp', '+1 звезда', 'potion'],
+  lootboxCharges: Math.max(0, Math.floor(Number(profile.lootboxCharges ?? fallback.lootboxCharges ?? 0))),
   createdAt: profile.createdAt || fallback.createdAt || new Date().toISOString(),
   updatedAt: profile.updatedAt || fallback.updatedAt || new Date().toISOString(),
 })
@@ -286,6 +288,8 @@ const applyChildOutcome = (db, outcome, gameId) => {
   const prevXp = Number(previous.xp || 0)
   const nextXp = prevXp + (outcome.coins ? Math.floor(outcome.coins * 0.4) : 20)
   const roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
+  const lootboxesEnabled = Array.isArray(previous.lootboxRewards) && previous.lootboxRewards.length > 0
+  const lootboxCharges = Number(previous.lootboxCharges || 0) + (lootboxesEnabled ? 1 : 0)
 
   db.childProfiles[profileId] = sanitizeChildProfile({
     ...previous,
@@ -296,6 +300,7 @@ const applyChildOutcome = (db, outcome, gameId) => {
     skillLevels: newSkillLevels,
     xp: nextXp,
     roomProgress,
+    lootboxCharges,
     ledger: nextLedger,
     updatedAt: new Date().toISOString(),
   })
@@ -965,6 +970,7 @@ const patchChildProfile = async (profileId, request, response) => {
     roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
   }
 
+  // Child patch cannot mint free lootboxes — only openLootbox endpoint spends them.
   const profile = sanitizeChildProfile(
     {
       ...previous,
@@ -974,6 +980,7 @@ const patchChildProfile = async (profileId, request, response) => {
       childEmail: previous.childEmail,
       xp: nextXp,
       roomProgress,
+      lootboxCharges: previous.lootboxCharges,
       updatedAt: new Date().toISOString(),
     },
     previous,
@@ -982,6 +989,61 @@ const patchChildProfile = async (profileId, request, response) => {
   db.childProfiles[profileId] = profile
   writeDb(db)
   sendJson(response, 200, { profile, state: buildState() })
+}
+
+const openChildLootbox = async (profileId, request, response) => {
+  await readJsonBody(request).catch(() => ({}))
+  const db = readDb()
+  const previous = db.childProfiles[profileId]
+  if (!previous) {
+    sendError(response, 404, 'Профиль ребёнка не найден.')
+    return
+  }
+
+  const rewards = Array.isArray(previous.lootboxRewards) ? previous.lootboxRewards : []
+  if (!rewards.length) {
+    sendError(response, 400, 'Лутбоксы выключены родителем.')
+    return
+  }
+
+  const charges = Math.max(0, Number(previous.lootboxCharges || 0))
+  if (charges < 1) {
+    sendError(response, 400, 'Нет лутбоксов. Заработай квестом или регулярным делом.')
+    return
+  }
+
+  const pick = String(rewards[Math.floor(Math.random() * rewards.length)] || '+20xp')
+  const prevXp = Number(previous.xp || 0)
+  let nextXp = prevXp
+  let starBalance = Number(previous.starBalance || 0)
+  let note = `Лутбокс: ${pick}`
+
+  if (/xp/i.test(pick)) {
+    const amt = parseInt(pick, 10)
+    nextXp += Number.isFinite(amt) && amt > 0 ? amt : 20
+  } else if (/звезд/i.test(pick)) {
+    const amt = parseInt(pick, 10)
+    starBalance += Number.isFinite(amt) && amt > 0 ? amt : 1
+  } else if (pick === 'potion') {
+    note += ' (Зелье: +10% к следующей игре)'
+  }
+
+  const roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
+  const profile = sanitizeChildProfile(
+    {
+      ...previous,
+      xp: nextXp,
+      starBalance,
+      roomProgress,
+      lootboxCharges: charges - 1,
+      updatedAt: new Date().toISOString(),
+    },
+    previous,
+  )
+
+  db.childProfiles[profileId] = profile
+  writeDb(db)
+  sendJson(response, 200, { profile, reward: pick, note, state: buildState() })
 }
 
 const redeemChildReward = async (profileId, request, response) => {
@@ -1147,6 +1209,10 @@ const server = createServer(async (request, response) => {
     }
     if (childProfileMatch && request.method === 'POST' && childProfileMatch[2] === 'redeem') {
       await redeemChildReward(decodeURIComponent(childProfileMatch[1]), request, response)
+      return
+    }
+    if (childProfileMatch && request.method === 'POST' && childProfileMatch[2] === 'lootbox') {
+      await openChildLootbox(decodeURIComponent(childProfileMatch[1]), request, response)
       return
     }
     const savedGameMatch = url.pathname.match(/^\/api\/games\/([^/]+)$/)

@@ -1317,6 +1317,17 @@ label {
   gap: 18px;
 }
 
+.child-lootbox-card.lootbox-locked {
+  opacity: 0.88;
+  filter: grayscale(0.12);
+}
+
+.child-lootbox-card .pixel-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  animation: none;
+}
+
 .child-lootbox-card > img {
   width: 88px;
   height: 88px;
