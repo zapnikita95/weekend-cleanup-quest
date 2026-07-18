@@ -75,16 +75,16 @@ export type ChildQuestOutcome = {
 export const defaultStarRules: StarRules = { gold: 3, silver: 2, bronze: 1 }
 
 export const CATEGORY_ACHIEVEMENTS = [
-  { id: 'first_quest', icon: 'trophy', title: 'Первый геройский квест', threshold: 1, description: 'Заверши первый квест.' },
-  { id: 'gold_quest', icon: 'gold', title: 'Золотой финиш', threshold: 1, description: 'Получи золото в квесте.' },
-  { id: 'triple_zone', icon: 'rooms', title: 'Три зоны за раз', threshold: 3, description: 'Закрой дела сразу в трёх разных зонах.' },
-  { id: 'kitchen_combo', icon: 'kitchen', title: 'Кухонный комбо-мастер', threshold: 3, description: 'Сделай три кухонных дела.' },
-  { id: 'speed_runner', icon: 'speed', title: 'Скоростной титан', threshold: 1, description: 'Заверши квест быстрее лимита.' },
-  { id: 'perfect_rating', icon: 'shield', title: 'Идеальная оценка', threshold: 1, description: 'Получай высшие оценки за дела.' },
-  { id: 'star_collector', icon: 'stars', title: 'Коллекционер звёзд', threshold: 10, description: 'Накопи 10 звёзд.' },
-  { id: 'streak_3', icon: 'streak', title: 'Три дня подряд', threshold: 3, description: 'Держи серию из 3 дней.' },
-  { id: 'streak_7', icon: 'streak', title: 'Неделя героя', threshold: 7, description: 'Держи серию из 7 дней.' },
-  { id: 'many_quests', icon: 'calendar', title: 'Две недели в игре', threshold: 14, description: 'Заверши 14 квестов.' },
+  { id: 'first_quest', icon: 'trophy', title: 'Первая уборка', threshold: 1, description: 'Доведи до конца свой первый квест.' },
+  { id: 'gold_quest', icon: 'gold', title: 'На все сто', threshold: 1, description: 'Набери золотой результат в квесте.' },
+  { id: 'triple_zone', icon: 'rooms', title: 'По всему дому', threshold: 3, description: 'Закрой дела сразу в трёх разных комнатах.' },
+  { id: 'kitchen_combo', icon: 'kitchen', title: 'На кухне порядок', threshold: 3, description: 'Сделай три дела на кухне.' },
+  { id: 'speed_runner', icon: 'speed', title: 'Успел вовремя', threshold: 1, description: 'Заверши квест раньше времени.' },
+  { id: 'perfect_rating', icon: 'shield', title: 'Родители довольны', threshold: 1, description: 'Получи высшие оценки за дела.' },
+  { id: 'star_collector', icon: 'stars', title: 'Десять звёзд', threshold: 10, description: 'Накопи 10 звёзд.' },
+  { id: 'streak_3', icon: 'streak', title: 'Три дня без пропусков', threshold: 3, description: 'Играй три дня подряд.' },
+  { id: 'streak_7', icon: 'streak', title: 'Неделя без пропусков', threshold: 7, description: 'Играй семь дней подряд.' },
+  { id: 'many_quests', icon: 'calendar', title: 'Четырнадцать квестов', threshold: 14, description: 'Заверши 14 квестов.' },
 ] as const
 
 // RPG Skill Tree
