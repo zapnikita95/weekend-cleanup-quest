@@ -822,8 +822,17 @@ label {
   background: #7cf0ff;
 }
 
+.child-profile-copy-link.copied {
+  background: #6bff9e;
+  min-width: 7.5em;
+}
+
 .child-profile-chip.active .child-profile-copy-link {
   background: #fffaf0;
+}
+
+.child-profile-chip.active .child-profile-copy-link.copied {
+  background: #6bff9e;
 }
 
 .teen-toggle {
@@ -1098,6 +1107,12 @@ label {
   padding: 12px;
 }
 
+.room-cosmetics-dock .avatar-hover-card {
+  left: auto;
+  right: 0;
+  width: min(320px, calc(100vw - 48px));
+}
+
 .avatar-hover-wrap:hover .avatar-hover-card,
 .avatar-hover-wrap:focus-within .avatar-hover-card {
   display: grid;
@@ -1308,6 +1323,20 @@ label {
 .regular-task-ticket small {
   color: var(--muted);
   font-weight: 900;
+}
+
+.regular-task-ticket.pending-parent {
+  background: rgba(255, 215, 106, 0.35);
+  box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.2);
+}
+
+.regular-task-waiting {
+  border: 3px solid var(--ink);
+  background: var(--sun);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .child-lootbox-card {
@@ -3567,6 +3596,10 @@ label {
   .child-room-identity {
     justify-content: flex-start;
   }
+
+  .room-cosmetics-dock .avatar-hover-card {
+    width: min(280px, calc(100vw - 36px));
+  }
 }
 
 
@@ -3747,29 +3780,39 @@ label {
   bottom: 10px;
   z-index: 7;
   display: grid;
-  grid-template-columns: auto 1fr minmax(160px, 240px);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 280px);
+  gap: 12px;
   align-items: end;
   pointer-events: none;
 }
 
 .child-room-hud > * {
   pointer-events: auto;
+  min-width: 0;
 }
 
 .child-room-identity {
   display: flex;
   align-items: end;
   gap: 10px;
-  justify-content: center;
+  justify-content: flex-start;
   color: #fffaf0;
   text-shadow: 2px 2px 0 #1f183d;
+  overflow: hidden;
+}
+
+.child-room-nameblock {
+  min-width: 0;
 }
 
 .child-room-identity h1 {
   margin: 0;
-  font-size: clamp(22px, 4vw, 34px);
+  font-size: clamp(20px, 3.4vw, 32px);
   color: #fffaf0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .child-room-identity .eyebrow {
@@ -3777,6 +3820,7 @@ label {
 }
 
 .room-hud-stars {
+  flex: 0 0 auto;
   border: 3px solid var(--ink);
   background: rgba(255, 250, 240, 0.92);
   padding: 6px 8px;
@@ -3785,14 +3829,14 @@ label {
 
 .room-hud-xp {
   border: 3px solid var(--ink);
-  background: rgba(255, 250, 240, 0.92);
+  background: rgba(255, 250, 240, 0.95);
   padding: 8px 10px;
   box-shadow: 3px 3px 0 var(--ink);
 }
 
 .hero-walker {
   position: absolute;
-  bottom: 14%;
+  bottom: 30%;
   left: 10%;
   z-index: 5;
   width: 78px;

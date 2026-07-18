@@ -147,28 +147,29 @@ export function ChildRoomScene({
           )
         })}
 
-        <HeroWalker>
+        <HeroWalker waypoints={theme.waypoints}>
           {renderAvatar({ avatar, avatarUrl, cosmetics: wearCosmetics, small: true })}
         </HeroWalker>
 
-        <div className="child-room-hud">
-          <div className="child-room-badge">
-            <strong>{theme.label}</strong>
-            <span>
-              {placed.length}/{ITEMS_PER_ROOM} предметов · Ур.{xpLevel}
-            </span>
-            <div className="room-progress-dots" aria-hidden>
-              {Array.from({ length: ITEMS_PER_ROOM }, (_, i) => (
-                <span key={i} className={i < placed.length ? 'on' : ''} />
-              ))}
-            </div>
+        <div className="child-room-badge">
+          <strong>{theme.label}</strong>
+          <span>
+            {placed.length}/{ITEMS_PER_ROOM} предметов · Ур.{xpLevel}
+          </span>
+          <div className="room-progress-dots" aria-hidden>
+            {Array.from({ length: ITEMS_PER_ROOM }, (_, i) => (
+              <span key={i} className={i < placed.length ? 'on' : ''} />
+            ))}
           </div>
+        </div>
+
+        <div className="child-room-hud">
           <div className="child-room-identity">
             <div className="child-summary-stars room-hud-stars">
               {renderStar()}
               <strong>{starBalance}</strong>
             </div>
-            <div>
+            <div className="child-room-nameblock">
               <p className="eyebrow">{ageLabel}</p>
               <h1>{name}</h1>
             </div>

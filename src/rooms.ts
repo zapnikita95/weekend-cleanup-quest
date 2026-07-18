@@ -12,6 +12,14 @@ export type RoomItemDef = {
   scale?: number
 }
 
+export type RoomWaypoint = {
+  /** 0..1 across stage width */
+  x: number
+  /** hold ms at this spot */
+  holdMs?: number
+  label?: string
+}
+
 export type RoomThemeDef = {
   id: RoomThemeId
   label: string
@@ -19,6 +27,8 @@ export type RoomThemeDef = {
   sceneSrc: string
   ambient: 'cozy' | 'castle' | 'ocean' | 'beach' | 'space'
   items: RoomItemDef[]
+  /** Hero walk route unique per theme */
+  waypoints: RoomWaypoint[]
 }
 
 export type RoomProgress = {
@@ -42,6 +52,13 @@ export const ROOM_THEMES: RoomThemeDef[] = [
       { id: 'room-shelf', label: 'Полка', src: '/rooms/room/shelf.svg', x: 68, y: 42, scale: 1.15 },
       { id: 'room-plant', label: 'Растение', src: '/rooms/room/plant.svg', x: 84, y: 58, scale: 1.2 },
     ],
+    waypoints: [
+      { x: 0.18, holdMs: 1100, label: 'окно' },
+      { x: 0.42, holdMs: 700, label: 'коврик' },
+      { x: 0.62, holdMs: 900, label: 'полка' },
+      { x: 0.82, holdMs: 1000, label: 'растение' },
+      { x: 0.5, holdMs: 600, label: 'центр' },
+    ],
   },
   {
     id: 'castle',
@@ -55,6 +72,13 @@ export const ROOM_THEMES: RoomThemeDef[] = [
       { id: 'castle-banner', label: 'Знамя', src: '/rooms/castle/banner.svg', x: 72, y: 28, scale: 1.2 },
       { id: 'castle-chest', label: 'Сундук', src: '/rooms/castle/chest.svg', x: 78, y: 68, scale: 1.25 },
       { id: 'castle-torch', label: 'Факел', src: '/rooms/castle/torch.svg', x: 12, y: 36, scale: 1.1 },
+    ],
+    waypoints: [
+      { x: 0.14, holdMs: 900, label: 'факел' },
+      { x: 0.28, holdMs: 800, label: 'щит' },
+      { x: 0.48, holdMs: 1200, label: 'трон' },
+      { x: 0.72, holdMs: 800, label: 'знамя' },
+      { x: 0.84, holdMs: 900, label: 'сундук' },
     ],
   },
   {
@@ -70,6 +94,13 @@ export const ROOM_THEMES: RoomThemeDef[] = [
       { id: 'ocean-shell', label: 'Ракушка', src: '/rooms/ocean/shell.svg', x: 58, y: 78, scale: 1.05 },
       { id: 'ocean-fish', label: 'Рыбка', src: '/rooms/ocean/fish.svg', x: 82, y: 36, scale: 1.2 },
     ],
+    waypoints: [
+      { x: 0.16, holdMs: 900, label: 'коралл' },
+      { x: 0.4, holdMs: 1000, label: 'сундук' },
+      { x: 0.58, holdMs: 700, label: 'ракушка' },
+      { x: 0.78, holdMs: 1100, label: 'рыбка' },
+      { x: 0.32, holdMs: 600, label: 'волна' },
+    ],
   },
   {
     id: 'beach',
@@ -84,6 +115,13 @@ export const ROOM_THEMES: RoomThemeDef[] = [
       { id: 'beach-can', label: 'Лейка', src: '/rooms/beach/can.svg', x: 58, y: 68, scale: 1.1 },
       { id: 'beach-ball', label: 'Мяч', src: '/rooms/beach/ball.svg', x: 12, y: 74, scale: 1.1 },
     ],
+    waypoints: [
+      { x: 0.14, holdMs: 800, label: 'мяч' },
+      { x: 0.28, holdMs: 1100, label: 'зонт' },
+      { x: 0.48, holdMs: 700, label: 'ведро' },
+      { x: 0.66, holdMs: 800, label: 'лейка' },
+      { x: 0.82, holdMs: 1000, label: 'пальма' },
+    ],
   },
   {
     id: 'space',
@@ -97,6 +135,13 @@ export const ROOM_THEMES: RoomThemeDef[] = [
       { id: 'space-window', label: 'Иллюминатор', src: '/rooms/space/window.svg', x: 70, y: 34, scale: 1.25 },
       { id: 'space-bot', label: 'Робот', src: '/rooms/space/bot.svg', x: 58, y: 66, scale: 1.2 },
       { id: 'space-crystal', label: 'Кристалл', src: '/rooms/space/crystal.svg', x: 84, y: 62, scale: 1.15 },
+    ],
+    waypoints: [
+      { x: 0.18, holdMs: 1000, label: 'ракета' },
+      { x: 0.4, holdMs: 700, label: 'палуба' },
+      { x: 0.58, holdMs: 900, label: 'робот' },
+      { x: 0.72, holdMs: 1100, label: 'иллюминатор' },
+      { x: 0.86, holdMs: 800, label: 'кристалл' },
     ],
   },
 ]

@@ -552,6 +552,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [playOnStars, setPlayOnStars] = useState(() => readLocalJson<'stars' | 'prizes'>('wcq-child-reward-mode', 'stars') === 'stars')
   const [childProfileModalMode, setChildProfileModalMode] = useState<'create' | 'edit' | null>(null)
   const [playFx, setPlayFx] = useState<{ playerIndex: number; coins: number; id: number } | null>(null)
+  const [copiedChildLinkId, setCopiedChildLinkId] = useState('')
   const [rewardModeEditorOpen, setRewardModeEditorOpen] = useState(false)
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
   const [extraChore, setExtraChore] = useState({ assignedTo: 0, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
@@ -1619,7 +1620,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }
     const link = `${getShareOrigin()}/child/${profileId}`
     await copyText(link)
-    setStatus('Ссылка на кабинет ребёнка скопирована.')
+    setCopiedChildLinkId(profileId)
+    setStatus('Скопировано!')
+    window.setTimeout(() => {
+      setCopiedChildLinkId((current) => (current === profileId ? '' : current))
+    }, 2000)
   }
 
   return (
@@ -1760,7 +1765,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                               <small>{profile.ageGroup === 'teen' ? 'Подросток' : 'Ребёнок'}</small>
                             </span>
                             <span
-                              className="child-profile-copy-link"
+                              className={`child-profile-copy-link ${copiedChildLinkId === profile.id ? 'copied' : ''}`}
                               role="button"
                               tabIndex={0}
                               title="Скопировать ссылку на профиль"
@@ -1777,7 +1782,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                                 }
                               }}
                             >
-                              Ссылка
+                              {copiedChildLinkId === profile.id ? 'Скопировано' : 'Ссылка'}
                             </span>
                           </button>
                         ))}
@@ -3177,23 +3182,34 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           <h2>Доска регулярных дел</h2>
           <p className="hint">Отметь выполненное — получишь опыт и звёзды. Родитель увидит заявку.</p>
           <div className="regular-task-list">
-            {(profile.regularTasks || []).map((task: any) => (
-              <div key={task.id} className="regular-task-ticket">
+            {(profile.regularTasks || []).map((task: any) => {
+              const isPending = (profile.pendingRegulars || []).some((p) => p.id === task.id)
+              return (
+              <div key={task.id} className={`regular-task-ticket ${isPending ? 'pending-parent' : ''}`}>
                 <span>{task.label}</span>
                 <small>+{task.xp} XP · +{task.stars}★</small>
-                <button className="tiny-button" onClick={async () => {
-                  const pending = [...(profile.pendingRegulars || []), { ...task, doneAt: new Date().toISOString() }]
-                  setProfile({...profile, pendingRegulars: pending} as any)
-                  try {
-                    await api(`/api/child-profiles/${profileId}`, {
-                      method: 'POST',
-                      body: JSON.stringify({ pendingRegulars: pending })
-                    })
-                    setStatus(`Отмечено "${task.label}" — ждёт подтверждения родителя`)
-                  } catch { setStatus('Отмечено локально') }
-                }}>Выполнить</button>
+                {isPending ? (
+                  <span className="regular-task-waiting" aria-live="polite">
+                    Ждём ОК родителя
+                  </span>
+                ) : (
+                  <button className="tiny-button" onClick={async () => {
+                    const pending = [...(profile.pendingRegulars || []), { ...task, doneAt: new Date().toISOString() }]
+                    setProfile({...profile, pendingRegulars: pending} as any)
+                    try {
+                      await api(`/api/child-profiles/${profileId}`, {
+                        method: 'POST',
+                        body: JSON.stringify({ pendingRegulars: pending })
+                      })
+                      setStatus(`«${task.label}» отмечено — ждём ОК родителя`)
+                    } catch {
+                      setStatus(`«${task.label}» отмечено локально — ждём ОК родителя`)
+                    }
+                  }}>Выполнить</button>
+                )}
               </div>
-            ))}
+              )
+            })}
             {!(profile.regularTasks || []).length && <p className="hint">Регулярные дела появятся после настройки родителем.</p>}
           </div>
         </article>

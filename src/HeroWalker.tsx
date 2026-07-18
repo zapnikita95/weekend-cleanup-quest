@@ -1,19 +1,34 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { easeInOutCubic, lerp, prefersReducedMotion } from './motion'
+import type { RoomWaypoint } from './rooms'
 
 type HeroWalkerProps = {
   children: ReactNode
   className?: string
+  waypoints?: RoomWaypoint[]
 }
 
-/**
- * Smooth rAF patrol: ease-in-out path, bob, squash/stretch, facing flip, ground shadow + dust puffs.
- */
-export function HeroWalker({ children, className }: HeroWalkerProps) {
+const DEFAULT_WAYPOINTS: RoomWaypoint[] = [
+  { x: 0.18, holdMs: 800 },
+  { x: 0.5, holdMs: 600 },
+  { x: 0.82, holdMs: 800 },
+  { x: 0.5, holdMs: 500 },
+]
+
+/** Walk theme waypoints with holds. Stays above bottom HUD. */
+export function HeroWalker({ children, className, waypoints }: HeroWalkerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const shadowRef = useRef<HTMLDivElement>(null)
   const dustRef = useRef<HTMLDivElement>(null)
+  const routeKey = useMemo(
+    () => (waypoints?.length ? waypoints.map((w) => `${w.x}:${w.holdMs || 0}`).join('|') : 'default'),
+    [waypoints],
+  )
+  const points = useMemo(
+    () => (waypoints?.length ? waypoints : DEFAULT_WAYPOINTS),
+    [routeKey],
+  )
 
   useEffect(() => {
     const root = rootRef.current
@@ -22,46 +37,65 @@ export function HeroWalker({ children, className }: HeroWalkerProps) {
     const dust = dustRef.current
     if (!root || !body || !shadow) return
 
+    const walkFloor = '30%'
+
     if (prefersReducedMotion()) {
-      root.style.left = '42%'
-      root.style.bottom = '10%'
+      root.style.left = `${(points[0]?.x ?? 0.42) * 100}%`
+      root.style.bottom = walkFloor
       root.style.transform = 'translateX(-50%)'
       return
     }
 
+    const MOVE_MS = 1400
     let raf = 0
     let running = true
-    const start = performance.now()
-    const cycleMs = 6400
     let lastFacing = 1
     let dustCooldown = 0
-    let lastT = 0
+    let segmentIndex = 0
+    let segmentStart = performance.now()
+    let fromX = points[0].x
+    let toX = points[0].x
+    let holdMs = points[0].holdMs ?? 700
+    let phase: 'move' | 'hold' = 'hold'
+    let x = fromX
+
+    const goNext = (now: number) => {
+      const next = (segmentIndex + 1) % points.length
+      fromX = x
+      toX = points[next].x
+      holdMs = points[next].holdMs ?? 700
+      segmentIndex = next
+      segmentStart = now
+      phase = Math.abs(toX - fromX) < 0.012 ? 'hold' : 'move'
+    }
 
     const tick = (now: number) => {
       if (!running) return
-      const elapsed = now - start
-      const cycle = (elapsed % cycleMs) / cycleMs
-      // 0→0.5 go right, 0.5→1 go left
-      const goingRight = cycle < 0.5
-      const segment = goingRight ? cycle * 2 : (cycle - 0.5) * 2
-      const eased = easeInOutCubic(segment)
-      const x = goingRight ? lerp(0.1, 0.78, eased) : lerp(0.78, 0.1, eased)
-      const facing = goingRight ? 1 : -1
+      const elapsed = now - segmentStart
 
-      // pause slightly at edges (hold ease near 0/1)
-      const edgeHold = segment < 0.06 || segment > 0.94
-      const speed = Math.abs(eased - lastT) * (goingRight ? 1 : 1)
-      lastT = eased
+      if (phase === 'hold') {
+        if (elapsed >= holdMs) goNext(now)
+      } else {
+        const t = Math.min(1, elapsed / MOVE_MS)
+        x = lerp(fromX, toX, easeInOutCubic(t))
+        if (t >= 1) {
+          x = toX
+          phase = 'hold'
+          segmentStart = now
+        }
+      }
 
-      const bob = Math.sin(elapsed / 95) * (edgeHold ? 1.5 : 5.2)
-      const stretchY = edgeHold ? 1 : 1 + Math.sin(elapsed / 75) * 0.055
-      const squashX = edgeHold ? 1 : 1 - Math.sin(elapsed / 75) * 0.06
-      const lean = edgeHold ? 0 : facing * 3
+      const dx = toX - fromX
+      const facing = Math.abs(dx) < 0.01 ? lastFacing : dx > 0 ? 1 : -1
+      const moving = phase === 'move'
+      const bob = Math.sin(now / 95) * (moving ? 5.2 : 1.8)
+      const stretchY = moving ? 1 + Math.sin(now / 75) * 0.055 : 1
+      const squashX = moving ? 1 - Math.sin(now / 75) * 0.06 : 1
+      const lean = moving ? facing * 3 : 0
 
       root.style.left = `${x * 100}%`
-      root.style.bottom = '10%'
-      root.style.transform = `translateX(-50%)`
-
+      root.style.bottom = walkFloor
+      root.style.transform = 'translateX(-50%)'
       body.style.transform = `scaleX(${facing * squashX}) scaleY(${stretchY}) translateY(${bob}px) rotate(${lean}deg)`
       shadow.style.transform = `translateX(-50%) scaleX(${1.05 + Math.abs(bob) * 0.02})`
       shadow.style.opacity = String(0.28 + Math.abs(bob) * 0.015)
@@ -72,7 +106,7 @@ export function HeroWalker({ children, className }: HeroWalkerProps) {
       }
 
       dustCooldown -= 16
-      if (dust && !edgeHold && dustCooldown <= 0 && speed > 0.002) {
+      if (dust && moving && dustCooldown <= 0) {
         dustCooldown = 140
         const puff = document.createElement('span')
         puff.className = 'hero-dust-puff'
@@ -89,7 +123,7 @@ export function HeroWalker({ children, className }: HeroWalkerProps) {
       running = false
       cancelAnimationFrame(raf)
     }
-  }, [])
+  }, [points, routeKey])
 
   return (
     <div ref={rootRef} className={className || 'hero-walker'} aria-hidden>
