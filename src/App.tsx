@@ -21,6 +21,8 @@ import {
   type StarReward,
   type StarRules,
 } from './childProgress'
+import { ChildRoomScene } from './ChildRoomScene'
+import { applyXpWithRoomProgress, type RoomProgress } from './rooms'
 import './App.css'
 
 type Difficulty = 'easy' | 'normal' | 'hard'
@@ -201,7 +203,6 @@ const lootboxRewardOptions = [
 ]
 const standardLootboxRewardValues = new Set(lootboxRewardOptions.map((option) => option.value))
 const cosmeticSlotLabels: Record<string, string> = {
-  backdrop: 'Фон',
   hat: 'Голова',
   cloak: 'Плащ',
   staff: 'Посох',
@@ -209,11 +210,6 @@ const cosmeticSlotLabels: Record<string, string> = {
   potion: 'Зелье',
 }
 const cosmeticItemLabels: Record<string, string> = {
-  'backdrop-tropics': 'Тропики',
-  'backdrop-room': 'Комната',
-  'backdrop-space': 'Космос',
-  'backdrop-ocean': 'Подводный мир',
-  'backdrop-castle': 'Замок героя',
   'hat-crown': 'Корона',
   cloak: 'Плащ героя',
   staff: 'Магический посох',
@@ -222,15 +218,10 @@ const cosmeticItemLabels: Record<string, string> = {
 }
 const cosmeticUnlocks = [
   { item: 'hat-crown', minLevel: 2, slot: 'hat' },
-  { item: 'backdrop-tropics', minLevel: 2, slot: 'backdrop' },
   { item: 'cloak', minLevel: 3, slot: 'cloak' },
-  { item: 'backdrop-room', minLevel: 3, slot: 'backdrop' },
   { item: 'staff', minLevel: 4, slot: 'staff' },
-  { item: 'backdrop-space', minLevel: 4, slot: 'backdrop' },
   { item: 'pet-slime', minLevel: 5, slot: 'pet' },
-  { item: 'backdrop-ocean', minLevel: 5, slot: 'backdrop' },
   { item: 'potion', minLevel: 6, slot: 'potion' },
-  { item: 'backdrop-castle', minLevel: 6, slot: 'backdrop' },
 ]
 const progressionAvatarOptions = ['duck', 'fox', 'cat', 'frog', 'robot', 'wizard', 'dragon', 'ninja', 'queen', 'slime']
 
@@ -560,6 +551,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
   const [requirePhotoProof, setRequirePhotoProof] = useState(() => readLocalJson<boolean>('wcq-require-photo', false))
   const [playOnStars, setPlayOnStars] = useState(() => readLocalJson<'stars' | 'prizes'>('wcq-child-reward-mode', 'stars') === 'stars')
   const [childProfileModalMode, setChildProfileModalMode] = useState<'create' | 'edit' | null>(null)
+  const [playFx, setPlayFx] = useState<{ playerIndex: number; coins: number; id: number } | null>(null)
   const [rewardModeEditorOpen, setRewardModeEditorOpen] = useState(false)
   const [targetScore, setTargetScore] = useState(() => readLocalJson<number>('wcq-target-score', 120))
   const [extraChore, setExtraChore] = useState({ assignedTo: 0, title: '', minutes: 10, difficulty: 'normal' as Difficulty, rating: 2 })
@@ -1291,15 +1283,33 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }
   }
 
+  const triggerPlayFx = useCallback((playerIndex: number, coins: number) => {
+    const id = Date.now()
+    setPlayFx({ playerIndex, coins, id })
+    window.setTimeout(() => {
+      setPlayFx((current) => (current?.id === id ? null : current))
+    }, 900)
+  }, [])
+
   const completeNextFor = useCallback(
     async (playerIndex: number, choreId?: string) => {
       if (phase !== 'play') return
+      const triggerForChore = (chore?: AssignedChore) => {
+        if (!chore || chore.completed) return
+        triggerPlayFx(playerIndex, choreBasePoints(chore))
+      }
       if (activeGameId) {
         try {
+          const before = assigned.find((chore) =>
+            choreId
+              ? chore.id === choreId && chore.assignedTo === playerIndex
+              : chore.assignedTo === playerIndex && !chore.completed,
+          )
           const result = await api<{ game: ActiveGame }>(`/api/active-games/${activeGameId}/complete`, {
             body: JSON.stringify({ choreId, playerIndex }),
             method: 'POST',
           })
+          triggerForChore(before)
           setAssigned(result.game.chores)
           return
         } catch {
@@ -1318,6 +1328,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               : chore,
           )
         }
+        triggerPlayFx(playerIndex, choreBasePoints(target))
         const lastDoneAt =
           current
             .filter((chore) => chore.assignedTo === playerIndex)
@@ -1332,7 +1343,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
         )
       })
     },
-    [activeGameId, phase, roundStartedAt],
+    [activeGameId, assigned, phase, roundStartedAt, triggerPlayFx],
   )
 
   useEffect(() => {
@@ -1601,12 +1612,12 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
     }
   }
 
-  const copyChildCabinetLink = async () => {
-    if (!selectedChildProfileId) {
+  const copyChildCabinetLink = async (profileId = selectedChildProfileId) => {
+    if (!profileId) {
       setStatus('Сначала сохраните профиль ребёнка.')
       return
     }
-    const link = `${getShareOrigin()}/child/${selectedChildProfileId}`
+    const link = `${getShareOrigin()}/child/${profileId}`
     await copyText(link)
     setStatus('Ссылка на кабинет ребёнка скопирована.')
   }
@@ -1737,18 +1748,33 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                     <div className="child-profile-picker">
                       <div className="child-profile-card-list">
                         {parentChildProfiles.map((profile) => (
-                          <button
-                            className={selectedChildProfileId === profile.id ? 'child-profile-chip active' : 'child-profile-chip'}
+                          <div
+                            className={selectedChildProfileId === profile.id ? 'child-profile-chip-wrap active' : 'child-profile-chip-wrap'}
                             key={profile.id}
-                            type="button"
-                            onClick={() => setSelectedChildProfileId(profile.id)}
                           >
-                            <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} small />
-                            <span>
-                              <strong>{profile.name}</strong>
-                              <small>{profile.ageGroup === 'teen' ? 'Подросток' : 'Ребёнок'}</small>
-                            </span>
-                          </button>
+                            <button
+                              className={selectedChildProfileId === profile.id ? 'child-profile-chip active' : 'child-profile-chip'}
+                              type="button"
+                              onClick={() => setSelectedChildProfileId(profile.id)}
+                            >
+                              <PixelAvatar avatar={profile.avatar} avatarUrl={profile.avatarUrl} small />
+                              <span>
+                                <strong>{profile.name}</strong>
+                                <small>{profile.ageGroup === 'teen' ? 'Подросток' : 'Ребёнок'}</small>
+                              </span>
+                            </button>
+                            <button
+                              className="tiny-button child-profile-copy-link"
+                              type="button"
+                              title="Скопировать ссылку на профиль"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                void copyChildCabinetLink(profile.id)
+                              }}
+                            >
+                              Ссылка
+                            </button>
+                          </div>
                         ))}
                       </div>
                       <div className="child-profile-actions">
@@ -2064,9 +2090,10 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
               const plan = playerPlans[playerIndex] || []
               const totalMinutes = plan.reduce((sum, chore) => sum + chore.minutes, 0)
               const done = plan.filter((chore) => chore.completed).length
+              const fxActive = playFx?.playerIndex === playerIndex
               return (
-                <article className="pixel-panel player-board" key={playerIndex}>
-                  <div className="player-card">
+                <article className={`pixel-panel player-board ${fxActive ? 'play-fx-active' : ''}`} key={playerIndex}>
+                  <div className={`player-card ${fxActive ? 'avatar-celebrate' : ''}`}>
                     <PixelAvatar avatar={players[playerIndex].avatar} avatarUrl={players[playerIndex].avatarUrl} />
                     <div>
                       <h2>{players[playerIndex].name || `Игрок ${playerIndex + 1}`}</h2>
@@ -2074,6 +2101,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                         {done}/{plan.length} дел · {totalMinutes} мин · текущие очки {playerScores[playerIndex]?.total || 0}
                       </p>
                     </div>
+                    {fxActive && (
+                      <span className="coin-float" key={playFx.id}>
+                        +{playFx.coins}
+                      </span>
+                    )}
                   </div>
                   <button
                     className="pixel-button wide"
@@ -2098,7 +2130,7 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
                   <div className="quest-list">
                     {plan.map((chore) => (
                       <button
-                        className={chore.completed ? 'quest done' : 'quest'}
+                        className={chore.completed ? 'quest done quest-spark' : 'quest'}
                         key={chore.id}
                         type="button"
                         onClick={() => {
@@ -2198,10 +2230,11 @@ function GameApp({ initialGameId }: { initialGameId: string }) {
 
       {phase === 'ceremony' && (
         <section className="results-screen ceremony-screen">
-          <article className="pixel-panel certificate">
+          <article className="pixel-panel certificate ceremony-burst">
             <div className="confetti" />
+            <div className="confetti confetti-layer-2" />
             {gameMode === 'childQuest' && childTier !== 'none' && (
-              <div className="ceremony-medal">
+              <div className="ceremony-medal medal-spin">
                 <PrizeSprite tier={childTier as Exclude<TierId, 'none'>} />
               </div>
             )}
@@ -2833,10 +2866,12 @@ function ChildProfileManager({
             <div key={i} className="history-row">
               <span>{p.label} (+{p.xp} XP +{p.stars}★)</span>
               <button className="tiny-button" onClick={async () => {
-                const newXp = (childProfile.xp || 0) + p.xp
+                const prevXp = childProfile.xp || 0
+                const newXp = prevXp + p.xp
                 const newStars = (childProfile.starBalance || 0) + p.stars
                 const remaining = (childProfile.pendingRegulars || []).filter((_,ii) => ii !== i)
-                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining })
+                const { roomProgress } = applyXpWithRoomProgress(prevXp, newXp, childProfile.roomProgress)
+                await onSave({ xp: newXp, starBalance: newStars, pendingRegulars: remaining, roomProgress })
               }}>Подтвердить</button>
             </div>
           ))}
@@ -3012,12 +3047,31 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
       {status && <p className="app-toast">{status}</p>}
       <header className="pixel-panel child-cabinet-header">
         <div className="child-cabinet-hero">
-          <div className="hero-avatar-stack">
+          <ChildRoomScene
+            avatar={profile.avatar}
+            avatarUrl={profile.avatarUrl}
+            cosmetics={profile.equippedCosmetics || {}}
+            name={profile.name}
+            ageLabel={`${ageLabel}${streak > 1 ? ` · ${streak} дн.` : ''}`}
+            xpLevel={xpLevel}
+            xpCurrent={xpCurrent}
+            xpLevelEnd={xpLevelEnd}
+            xpProgress={xpProgress}
+            xpNext={xpNext}
+            starBalance={profile.starBalance}
+            roomProgress={profile.roomProgress}
+            onRoomProgressChange={(next: RoomProgress) => {
+              void saveProfilePatch({ roomProgress: next })
+            }}
+            renderAvatar={(props) => <PixelAvatar {...props} />}
+            renderStar={() => <StarSprite />}
+          />
+          <div className="hero-avatar-stack room-cosmetics-dock">
             <div className="avatar-hover-wrap">
-              <PixelAvatar avatar={profile.avatar} cosmetics={profile.equippedCosmetics || {}} />
+              <button className="tiny-button" type="button">Снаряжение</button>
               <div className="avatar-hover-card">
                 <strong>Прокачка персонажа</strong>
-                <p>Предметы открываются за уровни. Когда появляется новый выбор, ты сам решаешь, что добавить.</p>
+                <p>Аксессуары открываются за уровни. Комната растёт отдельно — предметы появляются за каждый новый уровень.</p>
                 {profile.avatarUrl && (
                   <label>
                     Персонаж для прокачки
@@ -3029,7 +3083,7 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                   </label>
                 )}
                 <div className="cosmetic-select-grid compact">
-                  {['backdrop','hat','cloak','staff','pet','potion'].map(slot => {
+                  {['hat','cloak','staff','pet','potion'].map(slot => {
                     const current = equippedCosmetics[slot]
                     const unlockedItems = (profile.unlockedCosmetics || []).filter(u => u.startsWith(slot) || u === slot)
                     if (!unlockedItems.length) return null
@@ -3055,27 +3109,10 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
                     Выбрать новый предмет
                   </button>
                 )}
-                {!profile.unlockedCosmetics?.length && <small>Первый предмет откроется на 2 уровне.</small>}
+                {!profile.unlockedCosmetics?.length && <small>Первый аксессуар откроется на 2 уровне.</small>}
               </div>
             </div>
             {profile.avatarUrl && <img className="child-profile-photo" src={profile.avatarUrl} alt="Фото профиля" />}
-          </div>
-          <div className="child-cabinet-copy">
-            <p className="eyebrow">{ageLabel} · Ур.{xpLevel} {streak > 1 ? `🔥 ${streak} дн.` : ''}</p>
-            <h1>{profile.name}</h1>
-            <div className="child-summary-stars">
-              <StarSprite />
-              <strong>{profile.starBalance}</strong>
-              <span>звёзд</span>
-            </div>
-            <div className="header-xp-bar" aria-label={`Опыт ${xpCurrent} из ${xpLevelEnd}`}>
-              <div className="header-xp-copy">
-                <span>Опыт</span>
-                <strong>{xpCurrent} / {xpLevelEnd} XP</strong>
-              </div>
-              <div className="progress-track"><div className="progress-fill" style={{width: `${xpProgress}%`}} /></div>
-              <small>До следующего уровня: {xpNext} XP</small>
-            </div>
           </div>
         </div>
       </header>
@@ -3169,7 +3206,8 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           const rewards = profile.lootboxRewards || ['+20xp', '+1 звезда', 'potion']
           const pick = rewards[Math.floor(Math.random()*rewards.length)]
           let msg = `Выпало: ${pick}!`
-          let newXp = profile.xp || 0
+          const prevXp = profile.xp || 0
+          let newXp = prevXp
           let newStars = profile.starBalance || 0
           if (pick.includes('xp')) {
             const amt = parseInt(pick) || 20; newXp += amt
@@ -3177,11 +3215,12 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
             const amt = parseInt(pick) || 1; newStars += amt
           } else if (pick === 'potion') {
             msg += ' (Зелье: +10% к следующей игре)'
-            // could store buff
           }
-          const newP = {...profile, xp: newXp, starBalance: newStars}
+          const { roomProgress, grantedItemIds } = applyXpWithRoomProgress(prevXp, newXp, profile.roomProgress)
+          if (grantedItemIds.length) msg += ' Новый предмет в комнате!'
+          const newP = {...profile, xp: newXp, starBalance: newStars, roomProgress}
           setProfile(newP as any)
-          await api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({xp: newXp, starBalance: newStars})}).catch(()=>{})
+          await api(`/api/child-profiles/${profileId}`, {method:'POST', body: JSON.stringify({xp: newXp, starBalance: newStars, roomProgress})}).catch(()=>{})
           setStatus(msg)
         }}>Открыть лутбокс</button>
       </article>
@@ -4154,6 +4193,7 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
   const [status, setStatus] = useState('Загружаю игру...')
   const [reviews, setReviews] = useState<Record<string, { difficulty: Difficulty; rating: number }>>({})
   const [mobileExtra, setMobileExtra] = useState({ title: '', difficulty: 'normal' as Difficulty })
+  const [mobileFx, setMobileFx] = useState<{ coins: number; id: number } | null>(null)
 
   const loadGame = useCallback(async () => {
     try {
@@ -4173,10 +4213,18 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
 
   const complete = async (choreId?: string, proofPhotoUrl?: string) => {
     try {
+      const before = game?.chores.find((chore) =>
+        choreId ? chore.id === choreId && chore.assignedTo === playerIndex : chore.assignedTo === playerIndex && !chore.completed,
+      )
       const result = await api<{ game: ActiveGame }>(`/api/active-games/${sessionId}/complete`, {
         body: JSON.stringify({ choreId, playerIndex, proofPhotoUrl }),
         method: 'POST',
       })
+      if (before && !before.completed) {
+        const id = Date.now()
+        setMobileFx({ coins: choreBasePoints(before), id })
+        window.setTimeout(() => setMobileFx((current) => (current?.id === id ? null : current)), 900)
+      }
       setGame(result.game)
       setStatus('Готово, общий экран обновился')
     } catch (error) {
@@ -4323,9 +4371,10 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
 
     return (
       <main className={game.mode === 'childQuest' ? 'mobile-shell kids-mode' : 'mobile-shell'}>
-        <section className="pixel-panel mobile-panel mobile-results">
+        <section className="pixel-panel mobile-panel mobile-results ceremony-burst">
+          <div className="confetti" />
           {game.mode === 'childQuest' && childTier !== 'none' && (
-            <div className="ceremony-medal mobile-medal">
+            <div className="ceremony-medal mobile-medal medal-spin">
               <PrizeSprite tier={childTier as Exclude<TierId, 'none'>} />
             </div>
           )}
@@ -4385,11 +4434,13 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
 
   return (
     <main className={game.mode === 'childQuest' ? 'mobile-shell kids-mode' : 'mobile-shell'}>
-      <section className="pixel-panel mobile-panel">
+      <section className={`pixel-panel mobile-panel ${mobileFx ? 'play-fx-active' : ''}`}>
         {game.mode === 'childQuest' && (
-          <ChildQuestHud coins={childCoins} prizeTiers={game.prizeTiers} target={childTarget} />
+          <div className={mobileFx ? 'hud-pulse' : undefined}>
+            <ChildQuestHud coins={childCoins} prizeTiers={game.prizeTiers} target={childTarget} />
+          </div>
         )}
-        <div className="player-card">
+        <div className={`player-card ${mobileFx ? 'avatar-celebrate' : ''}`}>
           <PixelAvatar avatar={player.avatar} avatarUrl={player.avatarUrl} />
           <div>
             <p className="eyebrow">{game.mode === 'childQuest' ? 'Tidy Titans' : 'Моя уборка'}</p>
@@ -4398,6 +4449,11 @@ function MobilePlayerPage({ playerIndex, sessionId }: { playerIndex: number; ses
               {done}/{chores.length} дел · {status}
             </p>
           </div>
+          {mobileFx && (
+            <span className="coin-float" key={mobileFx.id}>
+              +{mobileFx.coins}
+            </span>
+          )}
         </div>
 
         <div className="quest-list mobile-quests">

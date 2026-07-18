@@ -45,6 +45,13 @@ export type ChildProfile = {
   equippedCosmetics?: Record<string, string>  // e.g. { hat: 'crown', cloak: 'blue', pet: 'slime' }
   unlockedCosmetics?: string[]
   cosmeticChoiceLevels?: number[]
+  /** Animated hero room: sequential themes, up to 5 items, then offer next room */
+  roomProgress?: {
+    roomIndex: number
+    placedItemIds: string[]
+    offerNextRoom: boolean
+    roomsCompleted: number
+  }
   regularTasks?: Array<{ id: string; label: string; xp: number; stars: number }>
   lootboxRewards?: string[]  // e.g. ['+30xp', '+2stars', 'potion']
   pendingRegulars?: Array<{ id: string; label: string; xp: number; stars: number; doneAt?: string }>

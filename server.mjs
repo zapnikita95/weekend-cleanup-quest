@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { basename, extname, join, normalize } from 'node:path'
+import { applyRoomProgressOnLevelUp, defaultRoomProgress, normalizeRoomProgress } from './rooms-shared.mjs'
 
 const port = Number(process.env.PORT || 4173)
 const root = join(process.cwd(), 'dist')
@@ -173,6 +174,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   equippedCosmetics: {},
   unlockedCosmetics: [],
   cosmeticChoiceLevels: [],
+  roomProgress: defaultRoomProgress(),
   regularTasks: [],
   lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
   createdAt: new Date().toISOString(),
@@ -218,6 +220,7 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
   equippedCosmetics: profile.equippedCosmetics && typeof profile.equippedCosmetics === 'object' ? profile.equippedCosmetics : fallback.equippedCosmetics || {},
   unlockedCosmetics: Array.isArray(profile.unlockedCosmetics) ? profile.unlockedCosmetics : fallback.unlockedCosmetics || [],
   cosmeticChoiceLevels: Array.isArray(profile.cosmeticChoiceLevels) ? profile.cosmeticChoiceLevels.map(Number).filter(Number.isFinite) : fallback.cosmeticChoiceLevels || [],
+  roomProgress: normalizeRoomProgress(profile.roomProgress ?? fallback.roomProgress),
   regularTasks: Array.isArray(profile.regularTasks) ? profile.regularTasks.map(t => ({
     id: String(t.id || makeId()),
     label: String(t.label || 'Задание'),
@@ -280,6 +283,10 @@ const applyChildOutcome = (db, outcome, gameId) => {
   if (streak >= 7) nextAchievementIds.add('streak_7')
   if (totalQuests >= 14) nextAchievementIds.add('many_quests')
 
+  const prevXp = Number(previous.xp || 0)
+  const nextXp = prevXp + (outcome.coins ? Math.floor(outcome.coins * 0.4) : 20)
+  const roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
+
   db.childProfiles[profileId] = sanitizeChildProfile({
     ...previous,
     starBalance,
@@ -287,7 +294,8 @@ const applyChildOutcome = (db, outcome, gameId) => {
     categoryCounts,
     achievementIds: [...nextAchievementIds],
     skillLevels: newSkillLevels,
-    xp: Number(previous.xp || 0) + (outcome.coins ? Math.floor(outcome.coins * 0.4) : 20),
+    xp: nextXp,
+    roomProgress,
     ledger: nextLedger,
     updatedAt: new Date().toISOString(),
   })
@@ -881,6 +889,15 @@ const upsertChildProfile = async (request, response) => {
     return
   }
 
+  const prevXp = Number(previous.xp || 0)
+  const nextXp = body.xp !== undefined ? Number(body.xp) : prevXp
+  let roomProgress = body.roomProgress !== undefined
+    ? normalizeRoomProgress(body.roomProgress)
+    : previous.roomProgress
+  if (body.xp !== undefined && body.roomProgress === undefined) {
+    roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
+  }
+
   const profile = sanitizeChildProfile(
     {
       ...previous,
@@ -893,6 +910,8 @@ const upsertChildProfile = async (request, response) => {
       avatarUrl: String(body.avatarUrl || previous.avatarUrl || ''),
       starRules: body.starRules || previous.starRules,
       rewards: Array.isArray(body.rewards) ? body.rewards : previous.rewards,
+      xp: nextXp,
+      roomProgress,
       updatedAt: new Date().toISOString(),
     },
     previous,
@@ -925,6 +944,44 @@ const getChildProfile = (profileId, response) => {
     .slice(-20)
     .reverse()
   sendJson(response, 200, { profile: sanitizeChildProfile(profile), games: childGames.map((game) => hydrateGame(game, db.profiles)) })
+}
+
+const patchChildProfile = async (profileId, request, response) => {
+  const body = await readJsonBody(request)
+  const db = readDb()
+  const previous = db.childProfiles[profileId]
+  if (!previous) {
+    sendError(response, 404, 'Профиль ребёнка не найден.')
+    return
+  }
+
+  const prevXp = Number(previous.xp || 0)
+  const nextXp = body.xp !== undefined ? Number(body.xp) : prevXp
+  let roomProgress = body.roomProgress !== undefined
+    ? normalizeRoomProgress(body.roomProgress)
+    : previous.roomProgress
+
+  if (body.xp !== undefined && body.roomProgress === undefined) {
+    roomProgress = applyRoomProgressOnLevelUp(prevXp, nextXp, previous.roomProgress)
+  }
+
+  const profile = sanitizeChildProfile(
+    {
+      ...previous,
+      ...body,
+      id: previous.id,
+      parentEmail: previous.parentEmail,
+      childEmail: previous.childEmail,
+      xp: nextXp,
+      roomProgress,
+      updatedAt: new Date().toISOString(),
+    },
+    previous,
+  )
+
+  db.childProfiles[profileId] = profile
+  writeDb(db)
+  sendJson(response, 200, { profile, state: buildState() })
 }
 
 const redeemChildReward = async (profileId, request, response) => {
@@ -1082,6 +1139,10 @@ const server = createServer(async (request, response) => {
     const childProfileMatch = url.pathname.match(/^\/api\/child-profiles\/([^/]+)(?:\/(.+))?$/)
     if (childProfileMatch && request.method === 'GET' && !childProfileMatch[2]) {
       getChildProfile(decodeURIComponent(childProfileMatch[1]), response)
+      return
+    }
+    if (childProfileMatch && request.method === 'POST' && !childProfileMatch[2]) {
+      await patchChildProfile(decodeURIComponent(childProfileMatch[1]), request, response)
       return
     }
     if (childProfileMatch && request.method === 'POST' && childProfileMatch[2] === 'redeem') {

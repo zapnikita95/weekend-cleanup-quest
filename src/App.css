@@ -771,22 +771,41 @@ label {
   gap: 10px;
 }
 
+.child-profile-chip-wrap {
+  display: grid;
+  gap: 6px;
+  border: 3px solid var(--ink);
+  background: #fffaf0;
+  padding: 6px;
+  box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.25);
+}
+
+.child-profile-chip-wrap.active {
+  background: var(--sun);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
 .child-profile-chip {
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 3px solid var(--ink);
-  background: #fffaf0;
+  border: 0;
+  background: transparent;
   color: var(--ink);
   cursor: pointer;
-  padding: 10px;
+  padding: 6px;
   text-align: left;
-  box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.25);
+  width: 100%;
+  box-shadow: none;
 }
 
 .child-profile-chip.active {
-  background: var(--sun);
-  box-shadow: 4px 4px 0 var(--ink);
+  background: transparent;
+  box-shadow: none;
+}
+
+.child-profile-copy-link {
+  width: 100%;
 }
 
 .child-profile-chip span {
@@ -3102,5 +3121,358 @@ label {
     width: 160px;
     height: 160px;
     justify-self: center;
+  }
+
+  .child-room-stage {
+    min-height: 200px;
+  }
+
+  .child-room-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Animated hero room ===== */
+.child-room-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
+  gap: 14px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.child-room-stage {
+  position: relative;
+  min-height: 260px;
+  overflow: hidden;
+  border: 4px solid var(--ink);
+  background: #1f183d;
+  box-shadow: 6px 6px 0 var(--ink);
+  animation: room-scene-in 520ms steps(4, end);
+}
+
+.child-room-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
+  transform: scale(1.08);
+  filter: saturate(1.15);
+}
+
+.child-room-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ambient-particle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: #fff4bd;
+  opacity: 0.85;
+  animation: ambient-float 3.2s steps(6, end) infinite;
+}
+
+.ambient-particle.p1 { left: 12%; top: 70%; animation-delay: 0s; }
+.ambient-particle.p2 { left: 38%; top: 55%; animation-delay: 0.4s; background: #66e3ff; }
+.ambient-particle.p3 { left: 62%; top: 62%; animation-delay: 0.9s; background: #ff79b8; }
+.ambient-particle.p4 { left: 84%; top: 48%; animation-delay: 1.3s; }
+
+.ambient-ocean .ambient-particle {
+  width: 14px;
+  height: 4px;
+  background: rgba(223, 247, 255, 0.7);
+  animation-name: ambient-wave;
+}
+
+.ambient-space .ambient-particle {
+  width: 4px;
+  height: 4px;
+  background: #fff4bd;
+  animation-name: ambient-twinkle;
+}
+
+.ambient-beach .ambient-particle {
+  background: #ffd76a;
+}
+
+.ambient-castle .ambient-particle {
+  background: #ffd76a;
+  box-shadow: 0 0 0 2px #ff9a5a;
+}
+
+.child-room-floor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28%;
+  background: linear-gradient(180deg, transparent, rgba(31, 24, 61, 0.35));
+  border-top: 3px solid rgba(31, 24, 61, 0.45);
+}
+
+.child-room-items {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 18%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: 2;
+}
+
+.room-item-slot {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 3px dashed rgba(31, 24, 61, 0.35);
+  background: rgba(255, 250, 240, 0.2);
+}
+
+.room-item-slot.filled {
+  border-style: solid;
+  border-color: var(--ink);
+  background: rgba(255, 250, 240, 0.72);
+  box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.35);
+}
+
+.room-item-slot.pop {
+  animation: item-pop 700ms steps(5, end);
+}
+
+.room-item-slot img {
+  width: 40px;
+  height: 40px;
+  image-rendering: pixelated;
+}
+
+.room-item-ghost {
+  width: 22px;
+  height: 22px;
+  background: rgba(31, 24, 61, 0.18);
+}
+
+.child-room-runner {
+  position: absolute;
+  bottom: 10%;
+  left: 8%;
+  z-index: 3;
+  animation: hero-patrol 8s linear infinite;
+}
+
+.runner-bob {
+  animation: hero-bob 360ms steps(2, end) infinite;
+}
+
+.child-room-runner .avatar-container.small,
+.child-room-runner .pixel-avatar.small {
+  width: 56px;
+  height: 56px;
+}
+
+.child-room-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  display: grid;
+  gap: 2px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 250, 240, 0.92);
+  padding: 6px 10px;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.child-room-badge strong {
+  font-size: 13px;
+}
+
+.child-room-badge span {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.room-offer-reopen {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  animation: button-glow 900ms steps(2, end) infinite;
+}
+
+.room-copy {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.room-cosmetics-dock {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 5;
+}
+
+.child-cabinet-header {
+  position: relative;
+}
+
+.room-offer-modal {
+  max-width: 420px;
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+
+.room-offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+@keyframes room-scene-in {
+  from { opacity: 0.3; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes hero-patrol {
+  0% { left: 8%; transform: scaleX(1); }
+  45% { left: 72%; transform: scaleX(1); }
+  50% { left: 72%; transform: scaleX(-1); }
+  95% { left: 8%; transform: scaleX(-1); }
+  100% { left: 8%; transform: scaleX(1); }
+}
+
+@keyframes hero-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-4px); }
+}
+
+@keyframes ambient-float {
+  0% { transform: translateY(0) scale(1); opacity: 0.2; }
+  50% { transform: translateY(-28px) scale(1.2); opacity: 0.9; }
+  100% { transform: translateY(-56px) scale(0.8); opacity: 0; }
+}
+
+@keyframes ambient-wave {
+  0% { transform: translateX(0); opacity: 0.3; }
+  50% { transform: translateX(18px); opacity: 0.8; }
+  100% { transform: translateX(36px); opacity: 0.2; }
+}
+
+@keyframes ambient-twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+
+@keyframes item-pop {
+  0% { transform: scale(0.4) translateY(12px); }
+  60% { transform: scale(1.15) translateY(-4px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+/* ===== Gameplay FX ===== */
+.player-card {
+  position: relative;
+}
+
+.avatar-celebrate .avatar-container,
+.avatar-celebrate .pixel-avatar {
+  animation: avatar-bounce 520ms steps(4, end);
+}
+
+.coin-float {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  border: 3px solid var(--ink);
+  background: var(--sun);
+  color: var(--ink);
+  font-weight: 900;
+  padding: 4px 8px;
+  animation: coin-rise 900ms steps(5, end) forwards;
+  z-index: 3;
+}
+
+.play-fx-active .progress-fill,
+.hud-pulse .progress-fill {
+  animation: xp-pulse 700ms steps(3, end);
+}
+
+.quest.done.quest-spark {
+  animation: quest-done-flash 480ms steps(3, end);
+}
+
+.ceremony-burst .confetti-layer-2 {
+  background-position:
+    30% 10%,
+    80% 40%,
+    55% 70%;
+  animation-duration: 1100ms;
+  opacity: 0.65;
+}
+
+.medal-spin {
+  animation: medal-spin-in 800ms steps(6, end);
+}
+
+@keyframes avatar-bounce {
+  0% { transform: scale(1) translateY(0); }
+  40% { transform: scale(1.12) translateY(-8px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+@keyframes coin-rise {
+  0% { opacity: 0; transform: translateY(8px) scale(0.8); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-28px) scale(1.1); }
+}
+
+@keyframes xp-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.35); box-shadow: 0 0 0 3px var(--sun); }
+}
+
+@keyframes quest-done-flash {
+  0% { box-shadow: 0 0 0 0 var(--aqua); }
+  50% { box-shadow: 0 0 0 6px rgba(102, 227, 255, 0.45); }
+  100% { box-shadow: 3px 3px 0 rgba(31, 24, 61, 0.25); }
+}
+
+@keyframes medal-spin-in {
+  0% { transform: scale(0.4) rotate(-20deg); opacity: 0; }
+  70% { transform: scale(1.12) rotate(8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .child-room-runner,
+  .runner-bob,
+  .ambient-particle,
+  .room-item-slot.pop,
+  .child-room-stage,
+  .avatar-celebrate .avatar-container,
+  .avatar-celebrate .pixel-avatar,
+  .coin-float,
+  .medal-spin,
+  .ceremony-screen,
+  .confetti,
+  .ceremony-button,
+  .room-offer-reopen {
+    animation: none !important;
+  }
+
+  .child-room-runner {
+    left: 40%;
   }
 }
