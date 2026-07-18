@@ -89,25 +89,29 @@ export const CATEGORY_ACHIEVEMENTS = [
 
 // RPG Skill Tree
 export const SKILL_TREE = [
-  { id: 'kitchen', icon: 'kitchen', title: 'Кухня', desc: 'Мастер посуды и готовки' },
-  { id: 'bath', icon: 'bath', title: 'Ванная', desc: 'Гигиена и чистота' },
-  { id: 'bedroom', icon: 'bedroom', title: 'Спальня', desc: 'Порядок в личном пространстве' },
-  { id: 'living', icon: 'living', title: 'Гостиная', desc: 'Общие зоны' },
-  { id: 'hall', icon: 'hall', title: 'Прихожая', desc: 'Вход и хранение' },
-  { id: 'garden', icon: 'garden', title: 'Двор / Сад', desc: 'Наружные работы' },
+  { id: 'kitchen', icon: 'kitchen', title: 'Кухня', desc: 'Посуда, стол, плита' },
+  { id: 'bath', icon: 'bath', title: 'Ванная', desc: 'Раковина, зеркало, пол' },
+  { id: 'bedroom', icon: 'bedroom', title: 'Спальня', desc: 'Кровать, вещи, пыль' },
+  { id: 'living', icon: 'living', title: 'Гостиная', desc: 'Диван, пол, общий порядок' },
+  { id: 'hall', icon: 'hall', title: 'Прихожая', desc: 'Обувь, куртки, вход' },
+  { id: 'garden', icon: 'garden', title: 'Двор', desc: 'Мусор, двор, растения' },
 ] as const
 
 export type Skill = typeof SKILL_TREE[number]
 
 export const getSkillLevel = (count: number): number => Math.floor((count || 0) / 4) + 1
 
+export const getSkillRankLabel = (level: number): string => {
+  if (level >= 5) return 'Ас'
+  if (level >= 4) return 'Профи'
+  if (level >= 3) return 'Опытный'
+  if (level >= 2) return 'Уверенный'
+  return 'Новичок'
+}
+
 export const getSkillTitle = (skillId: string, level: number): string => {
   const base = SKILL_TREE.find(s => s.id === skillId)?.title || 'Навык'
-  if (level >= 5) return `Гений ${base.toLowerCase()}`
-  if (level >= 4) return `Мастер ${base.toLowerCase()}`
-  if (level >= 3) return `Эксперт ${base.toLowerCase()}`
-  if (level >= 2) return `Ученик ${base.toLowerCase()}`
-  return base
+  return `${base} · ${getSkillRankLabel(level)}`
 }
 
 export const getSkillBonusStars = (oldLevel: number, newLevel: number): number => {

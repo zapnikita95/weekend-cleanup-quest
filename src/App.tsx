@@ -4,25 +4,24 @@ import {
   CATEGORY_ACHIEVEMENTS,
   type ChildProfile,
   type ChildQuestOutcome,
-  computeSkillLevels,
   computeStreak,
   computeCategoryCountsFromChores,
   defaultStarRules,
   filterGamesByMode,
   getAgeLabel,
-  getSkillTitle,
   getCategorySkillBonus,
   getActiveSkillBuffs,
   getLevelFromXp,
   xpForNextLevel,
   XP_THRESHOLDS,
-  SKILL_TREE,
   starsForTier,
   type StarReward,
   type StarRules,
 } from './childProgress'
+import { AchievementCarousel } from './AchievementCarousel'
 import { ChildRoomScene } from './ChildRoomScene'
 import { FxBurst } from './FxBurst'
+import { SkillTreeBoard } from './SkillTreeBoard'
 import { applyXpWithRoomProgress, type RoomProgress } from './rooms'
 import './App.css'
 
@@ -3251,46 +3250,18 @@ function ChildCabinetPage({ profileId }: { profileId: string }) {
           </article>
         )}
 
-        <article className="pixel-panel child-achievements-panel">
-          <h2>Достижения</h2>
-          <div className="achievement-grid">
-            {CATEGORY_ACHIEVEMENTS.map((achievement) => {
-              const isUnlocked = unlocked.has(achievement.id)
-              const progress = Math.min(achievement.threshold, achievementProgress[achievement.id] || 0)
-              return (
-                <div className={`achievement-card ${isUnlocked ? 'unlocked' : ''}`} key={achievement.id}>
-                  <AchievementBadge achievement={achievement} unlocked={isUnlocked} />
-                  <strong>{achievement.title}</strong>
-                  <span>{achievement.description}</span>
-                  <small>{isUnlocked ? 'Открыто!' : `${progress}/${achievement.threshold}`}</small>
-                </div>
-              )
-            })}
-          </div>
-        </article>
+        <SkillTreeBoard
+          categoryCounts={profile.categoryCounts || {}}
+          renderIcon={(skill) => <RoomIcon icon={skill.icon} label={skill.title} />}
+        />
 
-        <article className="pixel-panel">
-          <h2>Дерево навыков</h2>
-          <div className="skill-tree">
-            {SKILL_TREE.map((skill) => {
-              const count = profile.categoryCounts[skill.id] || 0
-              const lvl = computeSkillLevels(profile.categoryCounts || {})[skill.id] || 1
-              const title = getSkillTitle(skill.id, lvl)
-              const progress = Math.min(100, Math.floor(((count % 4) / 4) * 100))
-              return (
-                <div className="skill-card" key={skill.id}>
-                  <RoomIcon icon={skill.icon} label={skill.title} />
-                  <div>
-                    <strong>{title} {lvl >= 4 ? '🏅' : lvl >= 3 ? '🥈' : lvl >= 2 ? '⭐' : ''}</strong>
-                    <small>Ур. {lvl} • {count} дел</small>
-                    <div className="progress-track"><div className="progress-fill" style={{width: `${progress}%`}} /></div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <p className="hint">Каждый уровень навыка = +2 звезды в будущем. Качай своего титана уборки!</p>
-        </article>
+        <AchievementCarousel
+          unlockedIds={unlocked}
+          progressById={achievementProgress}
+          renderBadge={(achievement, isUnlocked) => (
+            <AchievementBadge achievement={achievement} unlocked={isUnlocked} />
+          )}
+        />
 
         <article className="pixel-panel child-log-panel">
           <div className="child-log-header">
