@@ -178,6 +178,7 @@ const defaultChildProfile = ({ id, parentEmail, childEmail, name, avatar, avatar
   regularTasks: [],
   lootboxRewards: ['+20xp', '+1 звезда', 'potion', 'candy'],
   lootboxCharges: 0,
+  pendingRegulars: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 })
@@ -230,6 +231,17 @@ const sanitizeChildProfile = (profile, fallback = {}) => ({
   })) : fallback.regularTasks || [],
   lootboxRewards: Array.isArray(profile.lootboxRewards) ? profile.lootboxRewards.map(String) : fallback.lootboxRewards || ['+20xp', '+1 звезда', 'potion'],
   lootboxCharges: Math.max(0, Math.floor(Number(profile.lootboxCharges ?? fallback.lootboxCharges ?? 0))),
+  pendingRegulars: Array.isArray(profile.pendingRegulars)
+    ? profile.pendingRegulars.map((t) => ({
+        id: String(t.id || makeId()),
+        label: String(t.label || 'Задание'),
+        xp: Number(t.xp || 10),
+        stars: Number(t.stars || 1),
+        doneAt: t.doneAt ? String(t.doneAt) : undefined,
+      }))
+    : Array.isArray(fallback.pendingRegulars)
+      ? fallback.pendingRegulars
+      : [],
   createdAt: profile.createdAt || fallback.createdAt || new Date().toISOString(),
   updatedAt: profile.updatedAt || fallback.updatedAt || new Date().toISOString(),
 })
