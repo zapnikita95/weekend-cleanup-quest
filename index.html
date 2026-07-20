@@ -84,13 +84,35 @@
       }
     </script>
     <style>
+      /* Boot splash: keep the same purple + grid as the game (never solid black —
+         opaque body background hides body::before grid after CSS loads). */
+      :root {
+        color: #fffaf0;
+        font-family: "Courier New", ui-monospace, monospace;
+        background:
+          radial-gradient(circle at 15% 20%, rgba(255, 121, 184, 0.4), transparent 24%),
+          radial-gradient(circle at 85% 10%, rgba(102, 227, 255, 0.35), transparent 26%),
+          linear-gradient(135deg, #211642 0%, #342063 48%, #1a1638 100%);
+      }
       html, body {
         margin: 0;
         min-height: 100%;
-        background: #0b1020;
-        color: #f4f7ff;
-        font-family: "Segoe UI", system-ui, sans-serif;
+        background: transparent;
       }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.1) 2px, transparent 2px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.1) 2px, transparent 2px);
+        background-size: 32px 32px;
+        -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.25));
+        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.25));
+      }
+      #root, #seo-prerender { position: relative; z-index: 1; }
       #seo-prerender {
         box-sizing: border-box;
         min-height: 100vh;
@@ -99,6 +121,7 @@
         gap: 12px;
         padding: 32px 20px;
         text-align: center;
+        text-shadow: 2px 2px 0 rgba(31, 24, 61, 0.55);
       }
       #seo-prerender[hidden] { display: none !important; }
       #seo-prerender h1 {
@@ -109,13 +132,13 @@
       #seo-prerender p {
         margin: 0 auto;
         max-width: 36rem;
-        opacity: 0.86;
+        opacity: 0.9;
         line-height: 1.5;
       }
       #seo-prerender .boot-status {
         margin-top: 8px;
         font-size: 0.95rem;
-        opacity: 0.7;
+        opacity: 0.75;
       }
       #root:not(:empty) + #seo-prerender,
       body:has(#root:not(:empty)) #seo-prerender { display: none !important; }
