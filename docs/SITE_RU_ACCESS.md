@@ -32,3 +32,13 @@ curl.exe -sI --max-time 15 "https://www.tidytitans.ru/"
 ```
 
 То же для `efir-ai.ru` — см. neuroradio `docs/SITE_RU_ACCESS.md`.
+
+## Почему после Cloudflare всё ещё «чёрный экран»
+
+Сайт — SPA: HTML приходит быстро, а игра рисуется только после загрузки `/assets/*.js`.  
+Если у статики нет `Cache-Control`, Cloudflare ставит `cf-cache-status: DYNAMIC` и **каждый** запрос JS идёт на Railway → из РФ ~20–90 с на маленький бандл → браузер показывает пустой `#root`.
+
+В `server.mjs` для `/assets/*` отдаётся `Cache-Control: public, max-age=31536000, immutable`.  
+После деплоя: `curl -sI https://www.tidytitans.ru/assets/…` → `HIT`/`MISS` + длинный cache, не `DYNAMIC` без max-age.
+
+Пока JS грузится, в HTML виден `#seo-prerender` («Загружаем игру…»), а не чёрный экран.

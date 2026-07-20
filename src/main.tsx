@@ -31,7 +31,11 @@ try {
       <App />
     </StrictMode>,
   )
-  document.getElementById('seo-prerender')?.remove()
+  const prerender = document.getElementById('seo-prerender')
+  if (prerender) {
+    prerender.hidden = true
+    prerender.remove()
+  }
 } catch (error) {
   renderFallback(error)
 }

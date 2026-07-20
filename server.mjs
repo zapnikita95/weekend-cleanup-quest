@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { basename, extname, join, normalize } from 'node:path'
+import { basename, extname, join, normalize, sep } from 'node:path'
 import { defaultRoomProgress, migrateLevelRewardClaims, normalizeRoomProgress } from './rooms-shared.mjs'
 
 const port = Number(process.env.PORT || 4173)
@@ -1108,8 +1108,27 @@ const redeemChildReward = async (profileId, request, response) => {
   sendJson(response, 200, { profile: db.childProfiles[profileId], state: buildState() })
 }
 
+const cacheControlFor = (filePath) => {
+  const ext = extname(filePath)
+  const base = basename(filePath)
+  // Hashed Vite assets — long cache so Cloudflare edge serves RU without Railway hop.
+  if (filePath.includes(`${sep}assets${sep}`) || filePath.includes('/assets/')) {
+    return 'public, max-age=31536000, immutable'
+  }
+  if (['.js', '.css', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.woff2', '.woff'].includes(ext)) {
+    return 'public, max-age=86400'
+  }
+  if (base === 'index.html') {
+    return 'public, max-age=60, must-revalidate'
+  }
+  return 'public, max-age=300'
+}
+
 const serveFile = (response, filePath) => {
+  const stats = statSync(filePath)
   response.setHeader('Content-Type', contentTypes[extname(filePath)] || 'application/octet-stream')
+  response.setHeader('Content-Length', String(stats.size))
+  response.setHeader('Cache-Control', cacheControlFor(filePath))
   response.setHeader('Strict-Transport-Security', 'max-age=31536000')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   createReadStream(filePath).pipe(response)
